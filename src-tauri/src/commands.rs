@@ -1,38 +1,47 @@
 use tauri::{AppHandle, Emitter, Manager, State};
 
-use crate::config::settings::Settings;
+use crate::config::settings::{OverlayPosition, Settings};
 use crate::models::downloader::{self, ModelInfo};
 use crate::AppState;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 fn position_overlay(
+    app: &AppHandle,
     win: &tauri::WebviewWindow,
-    position: &crate::config::settings::OverlayPosition,
+    position: &OverlayPosition,
 ) {
-    use crate::config::settings::OverlayPosition;
-    use tauri::PhysicalPosition;
+    use tauri::LogicalPosition;
 
-    let monitor = match win.current_monitor() {
-        Ok(Some(m)) => m,
-        _ => return,
+    // Try current_monitor (window is already shown), fall back to primary_monitor
+    let monitor = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    let monitor = match monitor {
+        Some(m) => m,
+        None => {
+            eprintln!("[overlay] no monitor found");
+            return;
+        }
     };
-    let screen = monitor.size();
+
     let scale = monitor.scale_factor();
-    let win_width = (280.0 * scale) as i32;
-    let menu_bar_offset = (40.0 * scale) as i32;
-    let margin = (16.0 * scale) as i32;
-    let screen_w = screen.width as i32;
-    let screen_h = screen.height as i32;
+    let screen_w = monitor.size().width as f64 / scale;
+    let win_width = 280.0;
+    let margin = 16.0;
 
-    let (x, y) = match position {
-        OverlayPosition::TopLeft => (margin, menu_bar_offset),
-        OverlayPosition::TopRight => (screen_w - win_width - margin, menu_bar_offset),
-        OverlayPosition::BottomCenter => ((screen_w - win_width) / 2, screen_h - (120.0 * scale) as i32),
-        OverlayPosition::TopCenter => ((screen_w - win_width) / 2, menu_bar_offset),
+    // Only reposition horizontally; vertical stays at y=40 from tauri.conf.json
+    let x = match position {
+        OverlayPosition::TopLeft => margin,
+        OverlayPosition::TopRight => screen_w - win_width - margin,
+        OverlayPosition::TopCenter | OverlayPosition::BottomCenter => {
+            (screen_w - win_width) / 2.0
+        }
     };
 
-    let _ = win.set_position(PhysicalPosition::new(x, y));
+    eprintln!("[overlay] x={}, screen_w={}, position={:?}", x, screen_w, position);
+    let _ = win.set_position(LogicalPosition::new(x, 40.0));
 }
 
 // ── Recording ────────────────────────────────────────────────────────────────
@@ -43,13 +52,21 @@ pub async fn start_recording(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let max_seconds = state.settings.lock().unwrap().max_recording_seconds;
+    let overlay_pos = state.settings.lock().unwrap().overlay_position.clone();
 
     let handle = crate::audio::capture::start_capture(max_seconds)?;
     *state.recording.lock().unwrap() = Some(handle);
 
     if let Some(win) = app.get_webview_window("overlay") {
-        position_overlay(&win, &state.settings.lock().unwrap().overlay_position);
         let _ = win.show();
+        // Reposition after show — needs a brief delay for the window to be
+        // placed on a monitor so current_monitor() works.
+        let win_clone = win.clone();
+        let app_clone = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            position_overlay(&app_clone, &win_clone, &overlay_pos);
+        });
     }
 
     app.emit("recording-started", ()).map_err(|e| e.to_string())?;
