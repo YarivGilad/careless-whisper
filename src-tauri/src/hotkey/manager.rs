@@ -20,10 +20,10 @@ pub fn register_hotkey(app: &mut App) -> Result<(), Box<dyn std::error::Error>> 
             if is_recording {
                 let _ = handle.emit("hotkey-stop", ());
             } else {
-                // Capture the frontmost app's PID now — before any overlay appears
-                let pid = crate::output::paste::get_frontmost_pid();
-                eprintln!("[hotkey] captured target_pid = {:?}", pid);
-                *state.target_pid.lock().unwrap() = pid;
+                // Capture the frontmost app/window now — before any overlay appears
+                let target = crate::output::paste::get_frontmost_target();
+                eprintln!("[hotkey] captured target_focus = {:?}", target);
+                *state.target_focus.lock().unwrap() = target;
                 let _ = handle.emit("hotkey-start", ());
             }
         }
@@ -53,9 +53,8 @@ pub fn re_register_hotkey(
                 if is_recording {
                     let _ = handle.emit("hotkey-stop", ());
                 } else {
-                    // Capture the frontmost app's PID now — before any overlay appears
-                    let pid = crate::output::paste::get_frontmost_pid();
-                    *state.target_pid.lock().unwrap() = pid;
+                    let target = crate::output::paste::get_frontmost_target();
+                    *state.target_focus.lock().unwrap() = target;
                     let _ = handle.emit("hotkey-start", ());
                 }
             }

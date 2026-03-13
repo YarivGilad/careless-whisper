@@ -9,6 +9,7 @@ pub mod tray;
 
 use commands::*;
 use config::settings::Settings;
+use output::paste::FocusTarget;
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -16,11 +17,12 @@ pub struct AppState {
     pub settings: Mutex<Settings>,
     pub whisper_ctx: Mutex<Option<whisper_rs::WhisperContext>>,
     pub recording: Mutex<Option<audio::capture::RecordingHandle>>,
-    pub target_pid: Mutex<Option<i32>>,
+    pub target_focus: Mutex<Option<FocusTarget>>,
 }
 
-/// Checks if the app has Accessibility permission.
-/// If not, opens the macOS System Settings prompt so the user can grant it.
+/// macOS: Checks if the app has Accessibility permission.
+/// If not, opens the System Settings prompt so the user can grant it.
+#[cfg(target_os = "macos")]
 fn request_accessibility_if_needed() {
     use std::os::raw::c_void;
 
@@ -39,13 +41,12 @@ fn request_accessibility_if_needed() {
             key_callbacks: *const c_void,
             value_callbacks: *const c_void,
         ) -> *const c_void;
-        fn CFRelease(cf: *const c_void);
+        fn CFRelease(cf: *mut c_void);
         static kCFBooleanTrue: *const c_void;
         static kCFTypeDictionaryKeyCallBacks: c_void;
         static kCFTypeDictionaryValueCallBacks: c_void;
     }
 
-    // kAXTrustedCheckOptionPrompt key — this is a constant string in ApplicationServices
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
         static kAXTrustedCheckOptionPrompt: *const c_void;
@@ -63,7 +64,7 @@ fn request_accessibility_if_needed() {
             &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
         );
         let trusted = AXIsProcessTrustedWithOptions(options);
-        CFRelease(options);
+        CFRelease(options as *mut c_void);
         eprintln!("[startup] AXIsProcessTrusted = {}", trusted != 0);
     }
 }
@@ -79,11 +80,10 @@ pub fn run() {
             settings: Mutex::new(settings),
             whisper_ctx: Mutex::new(None),
             recording: Mutex::new(None),
-            target_pid: Mutex::new(None),
+            target_focus: Mutex::new(None),
         })
         .setup(|app| {
-            // Prompt for Accessibility permission if not yet granted.
-            // This opens the System Settings dialog automatically on first launch.
+            #[cfg(target_os = "macos")]
             request_accessibility_if_needed();
 
             tray::setup_tray(&app.handle())?;

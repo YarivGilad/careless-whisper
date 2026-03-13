@@ -44,7 +44,7 @@ pub async fn stop_recording(
 
     let language = state.settings.lock().unwrap().language.clone();
     let auto_paste = state.settings.lock().unwrap().auto_paste;
-    let target_pid = *state.target_pid.lock().unwrap();
+    let target_focus = *state.target_focus.lock().unwrap();
     let active_model = state.settings.lock().unwrap().active_model.clone();
     let model_path = downloader::model_path(&active_model);
 
@@ -91,8 +91,8 @@ pub async fn stop_recording(
                 );
 
                 if auto_paste {
-                    if let Some(pid) = target_pid {
-                        if let Err(e) = crate::output::paste::paste_into_pid(pid) {
+                    if let Some(target) = target_focus {
+                        if let Err(e) = crate::output::paste::paste_into_target(target) {
                             eprintln!("[paste error] {}", e);
                         }
                     }
