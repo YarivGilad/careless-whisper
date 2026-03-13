@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Overlay window styles */
+body {
+  margin: 0;
+  background: transparent;
+}
+
+.overlay-root {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
+.overlay-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(30, 30, 30, 0.88);
+  border-radius: 9999px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.overlay-error {
+  background: rgba(180, 40, 40, 0.88);
+}
+
+.overlay-text {
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ff3b30;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Settings window */
+.settings-root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  padding: 24px;
+  padding-bottom: 32px;
+  background: #1c1c1e;
+  color: #f2f2f7;
+  min-height: 100vh;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.settings-section {
+  margin-bottom: 24px;
+}
+
+.settings-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8e8e93;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 6px;
+}
+
+.settings-input,
+.settings-select {
+  width: 100%;
+  padding: 8px 10px;
+  background: #2c2c2e;
+  border: 1px solid #3a3a3c;
+  border-radius: 8px;
+  color: #f2f2f7;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.settings-input:focus,
+.settings-select:focus {
+  border-color: #0a84ff;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid #2c2c2e;
+}
+
+.settings-toggle:last-child {
+  border-bottom: none;
+}
+
+.btn-primary {
+  background: #0a84ff;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary:hover { background: #0070e0; }
+.btn-primary:disabled { background: #3a3a3c; cursor: not-allowed; }
+
+.btn-danger {
+  background: #ff3b30;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-secondary {
+  background: #2c2c2e;
+  color: #f2f2f7;
+  border: 1px solid #3a3a3c;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid #2c2c2e;
+}
+
+.model-row:last-child { border-bottom: none; }
+
+.progress-bar-bg {
+  width: 100%;
+  height: 4px;
+  background: #3a3a3c;
+  border-radius: 2px;
+  margin-top: 4px;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: #0a84ff;
+  border-radius: 2px;
+  transition: width 0.2s;
+}
