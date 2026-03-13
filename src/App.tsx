@@ -15,10 +15,10 @@ function SettingsWindow() {
   }, []);
 
   return (
-    <>
+    <div className="settings-root">
       <Settings />
       <ModelManager activeModel={activeModel} />
-    </>
+    </div>
   );
 }
 

@@ -33,10 +33,10 @@ export function Settings() {
     }
   };
 
-  if (!settings) return <div className="settings-root">Loading…</div>;
+  if (!settings) return <div>Loading…</div>;
 
   return (
-    <div className="settings-root">
+    <div>
       <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>
         Careless Whisper
       </h2>
