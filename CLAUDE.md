@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Careless Whisper is a macOS menu-bar app for local voice-to-text transcription using OpenAI Whisper. It lives exclusively in the macOS menu bar (no dock icon — `LSUIElement = true`). Press a hotkey → speak → transcribed text is pasted into the focused app.
+Careless Whisper is a desktop app for local voice-to-text transcription using OpenAI Whisper. On macOS it lives in the menu bar (no dock icon — `LSUIElement = true`); on Windows it lives in the system tray. Press a hotkey → speak → transcribed text is pasted into the focused app. Supports macOS and Windows.
 
 ## Development Commands
 
@@ -43,7 +43,7 @@ Rust is built via Cargo through the Tauri CLI — there are no standalone `cargo
 - `audio/resample.rs` — rubato resampling to match whisper's expected format
 - `transcribe/whisper.rs` — whisper-rs inference (runs on background thread)
 - `models/downloader.rs` — reqwest streaming download of ggml models from Hugging Face → `~/Library/Application Support/careless-whisper/models/`
-- `output/clipboard.rs` + `output/paste.rs` — arboard clipboard write + Accessibility API paste
+- `output/clipboard.rs` + `output/paste.rs` — arboard clipboard write + platform-specific paste simulation (CoreGraphics on macOS, SendInput on Windows)
 - `hotkey/manager.rs` — tauri-plugin-global-shortcut registration
 - `tray.rs` — tray icon + menu (Settings / Quit)
 
@@ -60,7 +60,8 @@ The app requires **Microphone** permission (for audio capture) and **Accessibili
 
 ## Key Constraints
 
-- macOS only — cpal, arboard paste simulation, and `LSUIElement` are all macOS-specific
+- Supports macOS and Windows; platform-specific code is isolated behind `#[cfg(target_os)]` in `output/paste.rs` and `lib.rs`
 - whisper-rs links against whisper.cpp at compile time; the first `cargo build` will compile whisper.cpp from source (slow)
+- Metal GPU acceleration is enabled by default (macOS only); on Windows build with `--no-default-features` for CPU-only
 - Models are ggml format; downloaded from Hugging Face, not bundled with the app
 - Minimum macOS version: 12.0 (Monterey)
