@@ -59,12 +59,10 @@ pub async fn start_recording(
 
     if let Some(win) = app.get_webview_window("overlay") {
         let _ = win.show();
-        // Reposition after show — needs a brief delay for the window to be
-        // placed on a monitor so current_monitor() works.
+        // Reposition after show on the main thread (macOS requires UI ops on main thread).
         let win_clone = win.clone();
         let app_clone = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+        let _ = app.run_on_main_thread(move || {
             position_overlay(&app_clone, &win_clone, &overlay_pos);
         });
     }
