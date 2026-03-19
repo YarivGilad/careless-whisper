@@ -1,29 +1,40 @@
+<p align="center">
+  <img src="src-tauri/custom-icons/big-icon-cw.png" alt="Careless Whisper" width="200" />
+</p>
+
 # Careless Whisper
 
 A lightweight, always-on desktop app for local voice-to-text transcription. Lives in the system tray / menu bar, records on a global hotkey, transcribes locally with Whisper, and pastes the result into your focused app. No cloud. No data leaves your machine.
 
 Supports **macOS** and **Windows**.
 
+## Download
+
+| Platform | Link |
+|---|---|
+| macOS (Apple Silicon) | [Download .dmg](https://github.com/yarivgilad/careless-whisper/releases/latest/download/Careless.Whisper_0.1.0_aarch64.dmg) |
+| Windows | Coming soon |
+
+> All downloads are on the [Releases](https://github.com/yarivgilad/careless-whisper/releases) page.
+
 ---
 
-## Using the App
+## Install
 
-### Install (macOS)
+### macOS
 
-1. Build the app: `pnpm tauri build`
-2. Open `src-tauri/target/release/bundle/dmg/` — you'll find a `.dmg` file there.
-3. Open the DMG and drag **Careless Whisper.app** to your **Applications** folder.
-4. Launch it from Applications (or Spotlight).
+1. Download the `.dmg` file above.
+2. Open it and drag **Careless Whisper** to your **Applications** folder.
+3. Launch from Applications (or Spotlight).
 
-> The app has no Dock icon — it lives entirely in the **menu bar** (top-right of your screen). Look for the microphone icon.
+> The app has no Dock icon — it lives in the **menu bar** (top-right of your screen).
 
-### Install (Windows)
+### Windows
 
-1. Build the app: `pnpm tauri build -- --no-default-features`
-2. Open `src-tauri\target\release\bundle\nsis\` — you'll find an installer there.
-3. Run the installer and follow the prompts.
+1. Download the installer from the [Releases](https://github.com/yarivgilad/careless-whisper/releases) page.
+2. Run the installer and follow the prompts.
 
-> The app lives in the **system tray** (bottom-right of your screen). Look for the microphone icon.
+> The app lives in the **system tray** (bottom-right of your screen).
 
 ### First launch
 
@@ -43,27 +54,48 @@ The Settings window will open automatically because no model is downloaded yet.
 
 The hotkey, language, and other options can be changed from **Settings** in the tray menu.
 
+## Default Hotkey
+
+`Cmd+Shift+Space` (macOS) / `Ctrl+Shift+Space` (Windows) — press to start recording, press again to stop, transcribe, and paste.
+
+## Whisper Models
+
+On first launch the app will prompt you to download a model. Models are stored locally on your machine.
+
+| Model | Size | Speed |
+|---|---|---|
+| tiny | ~75 MB | Fastest |
+| base | ~142 MB | Fast (recommended) |
+| small | ~466 MB | Moderate |
+| medium | ~1.5 GB | Slow |
+| large-v3 | ~3 GB | Slowest |
+
+## Permissions
+
+### macOS
+
+- **Microphone** — to record your voice
+- **Accessibility** — to paste transcribed text into other apps (System Settings → Privacy & Security → Accessibility)
+
+### Windows
+
+- No special permissions needed.
+
 ---
 
-## Tech Stack
+## Building from Source
 
-- **Tauri v2** — Desktop framework (system tray, global hotkeys, IPC)
-- **Rust** — Backend (audio, transcription, clipboard, OS integration)
-- **whisper-rs** — Local Whisper inference via whisper.cpp bindings (Metal GPU on macOS, CPU on Windows)
-- **cpal** — Cross-platform audio capture
-- **React + TypeScript** — Minimal frontend (overlay, settings)
-- **Tailwind CSS** — Styling
-- **Vite** — Frontend bundler
-- **pnpm** — Package manager
+<details>
+<summary>For developers who want to build the app themselves</summary>
 
-## Prerequisites
+### Prerequisites
 
 - Rust (via rustup)
 - Node.js + pnpm
 - macOS: Xcode Command Line Tools
 - Windows: Visual Studio Build Tools (C++ workload)
 
-## Setup
+### Development
 
 ```sh
 pnpm install
@@ -75,56 +107,38 @@ On Windows, disable the Metal feature (macOS-only GPU acceleration):
 pnpm tauri dev -- --no-default-features
 ```
 
-## Platform-Specific Notes
+### Production Build
 
-### macOS Permissions
-
-The app requires two permissions:
-- **Microphone** — to record your voice
-- **Accessibility** — to paste transcribed text into other apps (System Settings → Privacy & Security → Accessibility)
-
-### Windows
-
-- No special permissions needed — `SendInput` API is used for paste simulation.
-- GPU acceleration via CUDA is not enabled by default. The app uses CPU inference, which works well with smaller models (tiny, base, small).
-
-## Project Structure
-
-```
-careless-whisper/
-├── src-tauri/              # Rust backend
-│   └── src/
-│       ├── audio/          # Mic capture (cpal) + resampling (rubato)
-│       ├── transcribe/     # whisper-rs wrapper
-│       ├── hotkey/         # Global hotkey registration
-│       ├── output/         # Clipboard write + paste simulation (per-platform)
-│       ├── models/         # Model download & management
-│       ├── config/         # Settings persistence (JSON)
-│       ├── tray.rs         # System tray setup
-│       └── commands.rs     # Tauri IPC handlers
-└── src/                    # React frontend
-    ├── components/
-    │   ├── Overlay.tsx     # Recording indicator
-    │   ├── Settings.tsx    # Settings panel
-    │   └── ModelManager.tsx
-    ├── hooks/
-    │   └── useTauriEvents.ts
-    └── styles/
-        └── globals.css
+```sh
+pnpm tauri build
 ```
 
-## Default Hotkey
+### Tech Stack
 
-`Cmd+Shift+Space` (macOS) / `Ctrl+Shift+Space` (Windows) — press to start recording, press again to stop, transcribe, and paste.
+- **Tauri v2** — Desktop framework (system tray, global hotkeys, IPC)
+- **Rust** — Backend (audio, transcription, clipboard, OS integration)
+- **whisper-rs** — Local Whisper inference via whisper.cpp bindings (Metal GPU on macOS, CPU on Windows)
+- **cpal** — Cross-platform audio capture
+- **React + TypeScript** — Frontend (overlay, settings)
+- **Vite** — Frontend bundler
 
-## Whisper Models
+### Project Structure
 
-On first launch the app will prompt you to download a model. Models are stored in your OS data directory under `careless-whisper/models/`.
+```
+src-tauri/src/
+├── audio/          # Mic capture + resampling
+├── transcribe/     # whisper-rs wrapper
+├── hotkey/         # Global hotkey registration
+├── output/         # Clipboard + paste simulation
+├── models/         # Model download & management
+├── config/         # Settings persistence
+├── tray.rs         # System tray setup
+└── commands.rs     # Tauri IPC handlers
 
-| Model | Size | Speed |
-|---|---|---|
-| tiny | ~75 MB | Fastest |
-| base | ~142 MB | Fast (default) |
-| small | ~466 MB | Moderate |
-| medium | ~1.5 GB | Slow |
-| large-v3 | ~3 GB | Slowest |
+src/
+├── components/     # Overlay, Settings, ModelManager
+├── hooks/          # Tauri event subscriptions
+└── styles/         # CSS
+```
+
+</details>
