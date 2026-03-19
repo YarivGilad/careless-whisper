@@ -17,10 +17,21 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setSettings);
     invoke<boolean>("get_launch_at_login").then(setLaunchAtLogin).catch(() => {});
+    invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
+  }, []);
+
+  // Re-check accessibility when window regains focus (user may have toggled it in System Settings)
+  useEffect(() => {
+    const onFocus = () => {
+      invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   const save = async () => {
@@ -42,6 +53,31 @@ export function Settings() {
       <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>
         Careless Whisper
       </h2>
+
+      {accessibilityGranted === false && (
+        <div className="accessibility-banner">
+          <div style={{ marginBottom: 8 }}>
+            <strong>Accessibility Permission Required</strong>
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.5 }}>
+            Careless Whisper needs Accessibility access to paste transcribed text
+            into your apps. Without it, text will only be copied to the clipboard.
+          </p>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              invoke("request_accessibility").then(() => {
+                // Re-check after a short delay (user needs time to toggle)
+                setTimeout(() => {
+                  invoke<boolean>("check_accessibility").then(setAccessibilityGranted);
+                }, 1000);
+              });
+            }}
+          >
+            Open System Settings
+          </button>
+        </div>
+      )}
 
       <div className="settings-section">
         <label className="settings-label">Recording Hotkey</label>

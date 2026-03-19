@@ -225,6 +225,83 @@ pub async fn set_active_model(
     Ok(())
 }
 
+// ── Accessibility ────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn check_accessibility() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::raw::c_void;
+
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrusted() -> u8;
+        }
+
+        Ok(unsafe { AXIsProcessTrusted() != 0 })
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
+}
+
+#[tauri::command]
+pub async fn request_accessibility() -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::raw::c_void;
+
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrustedWithOptions(options: *const c_void) -> u8;
+        }
+
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFDictionaryCreate(
+                allocator: *const c_void,
+                keys: *const *const c_void,
+                values: *const *const c_void,
+                num_values: isize,
+                key_callbacks: *const c_void,
+                value_callbacks: *const c_void,
+            ) -> *const c_void;
+            fn CFRelease(cf: *mut c_void);
+            static kCFBooleanTrue: *const c_void;
+            static kCFTypeDictionaryKeyCallBacks: c_void;
+            static kCFTypeDictionaryValueCallBacks: c_void;
+        }
+
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            static kAXTrustedCheckOptionPrompt: *const c_void;
+        }
+
+        unsafe {
+            let keys = [kAXTrustedCheckOptionPrompt];
+            let values = [kCFBooleanTrue];
+            let options = CFDictionaryCreate(
+                std::ptr::null(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                1,
+                &kCFTypeDictionaryKeyCallBacks as *const _ as *const c_void,
+                &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
+            );
+            let trusted = AXIsProcessTrustedWithOptions(options);
+            CFRelease(options as *mut c_void);
+            Ok(trusted != 0)
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(true)
+    }
+}
+
 // ── Autostart ────────────────────────────────────────────────────────────────
 
 #[tauri::command]

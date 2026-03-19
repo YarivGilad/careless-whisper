@@ -80,6 +80,19 @@ body {
   overflow-y: auto;
 }
 
+.accessibility-banner {
+  background: rgba(255, 179, 0, 0.12);
+  border: 1px solid rgba(255, 179, 0, 0.4);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  color: #ffd60a;
+}
+
+.accessibility-banner strong {
+  font-size: 14px;
+}
+
 .settings-section {
   margin-bottom: 24px;
 }

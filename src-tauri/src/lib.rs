@@ -120,6 +120,8 @@ pub fn run() {
             download_model,
             delete_model,
             set_active_model,
+            check_accessibility,
+            request_accessibility,
             get_launch_at_login,
             set_launch_at_login,
         ])
