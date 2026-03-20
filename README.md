@@ -14,7 +14,7 @@ Supports **macOS** and **Windows**.
 | Platform | Link |
 |---|---|
 | macOS (Apple Silicon) | [Download .dmg](https://github.com/yarivgilad/careless-whisper/releases/latest/download/Careless.Whisper_0.1.0_aarch64.dmg) |
-| Windows | Coming soon |
+| Windows | [Download .msi](https://github.com/YarivGilad/careless-whisper/releases/latest/download/Careless.Whisper_0.1.0_x64_en-US.msi) |
 
 > All downloads are on the [Releases](https://github.com/yarivgilad/careless-whisper/releases) page.
 
