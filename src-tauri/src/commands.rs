@@ -22,7 +22,7 @@ fn position_overlay(
     let monitor = match monitor {
         Some(m) => m,
         None => {
-            eprintln!("[overlay] no monitor found");
+            log::warn!("[overlay] no monitor found");
             return;
         }
     };
@@ -41,7 +41,7 @@ fn position_overlay(
         }
     };
 
-    eprintln!("[overlay] x={}, screen_w={}, position={:?}", x, screen_w, position);
+    log::warn!("[overlay] x={}, screen_w={}, position={:?}", x, screen_w, position);
     let _ = win.set_position(LogicalPosition::new(x, 40.0));
 }
 
@@ -61,10 +61,10 @@ pub async fn start_recording(
             Ok(vol) => {
                 *state.original_volume.lock().unwrap() = Some(vol);
                 if let Err(e) = crate::audio::volume::set_system_volume(0.10) {
-                    eprintln!("[volume] failed to lower: {}", e);
+                    log::warn!("[volume] failed to lower: {}", e);
                 }
             }
-            Err(e) => eprintln!("[volume] failed to read: {}", e),
+            Err(e) => log::warn!("[volume] failed to read: {}", e),
         }
     }
 
@@ -102,7 +102,7 @@ pub async fn stop_recording(
     // Restore volume immediately so the user hears audio again before transcription finishes
     if let Some(vol) = state.original_volume.lock().unwrap().take() {
         if let Err(e) = crate::audio::volume::set_system_volume(vol) {
-            eprintln!("[volume] failed to restore: {}", e);
+            log::warn!("[volume] failed to restore: {}", e);
         }
     }
 
@@ -161,7 +161,7 @@ pub async fn stop_recording(
                 if auto_paste {
                     if let Some(target) = target_focus {
                         if let Err(e) = crate::output::paste::paste_into_target(target) {
-                            eprintln!("[paste error] {}", e);
+                            log::warn!("[paste error] {}", e);
                         }
                     }
                 }
@@ -348,4 +348,15 @@ pub async fn set_launch_at_login(
     settings.save()?;
 
     Ok(())
+}
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_recent_logs() -> Result<String, String> {
+    let path = crate::log_path();
+    let content = std::fs::read_to_string(&path).unwrap_or_default();
+    let lines: Vec<&str> = content.lines().collect();
+    let start = lines.len().saturating_sub(100);
+    Ok(lines[start..].join("\n"))
 }

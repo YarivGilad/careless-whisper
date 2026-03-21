@@ -8,7 +8,8 @@ export type AppEvent =
   | { type: "transcription-error"; message: string }
   | { type: "download-progress"; model: string; percent: number }
   | { type: "hotkey-start" }
-  | { type: "hotkey-stop" };
+  | { type: "hotkey-stop" }
+  | { type: "backend-error"; message: string };
 
 type Handler = (event: AppEvent) => void;
 
@@ -53,6 +54,11 @@ export function useTauriEvents(handler: Handler) {
       );
       unlisteners.push(
         await listen("hotkey-stop", () => handler({ type: "hotkey-stop" }))
+      );
+      unlisteners.push(
+        await listen<{ message: string }>("backend-error", (e) =>
+          handler({ type: "backend-error", message: e.payload.message })
+        )
       );
     };
 

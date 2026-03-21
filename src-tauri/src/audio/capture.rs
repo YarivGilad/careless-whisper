@@ -36,7 +36,7 @@ pub fn start_capture(max_seconds: u32) -> Result<RecordingHandle, String> {
                     buf.extend_from_slice(data);
                 }
             },
-            |err| eprintln!("Audio stream error: {}", err),
+            |err| log::error!("Audio stream error: {}", err),
             None,
         )
         .map_err(|e| e.to_string())?;

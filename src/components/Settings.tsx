@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { listen } from "@tauri-apps/api/event";
 
 interface Settings {
   hotkey: string;
@@ -19,12 +21,38 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [logsCopied, setLogsCopied] = useState(false);
 
   useEffect(() => {
     invoke<Settings>("get_settings").then(setSettings);
     invoke<boolean>("get_launch_at_login").then(setLaunchAtLogin).catch(() => {});
     invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
   }, []);
+
+  // Listen for backend errors
+  useEffect(() => {
+    const unlisten = listen<{ message: string }>("backend-error", (e) => {
+      setLastError(e.payload.message);
+    });
+    const unlisten2 = listen<{ message: string }>("transcription-error", (e) => {
+      setLastError(e.payload.message);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+      unlisten2.then((fn) => fn());
+    };
+  }, []);
+
+  const reportIssue = async () => {
+    const logs = await invoke<string>("get_recent_logs");
+    await navigator.clipboard.writeText(logs);
+    setLogsCopied(true);
+    setTimeout(() => setLogsCopied(false), 3000);
+    await openUrl(
+      "https://github.com/YarivGilad/careless-whisper/issues/new?title=Bug+Report&body=%0A%0A---%0APaste+your+logs+here+(already+copied+to+clipboard)"
+    );
+  };
 
   // Re-check accessibility when window regains focus (user may have toggled it in System Settings)
   useEffect(() => {
@@ -77,6 +105,29 @@ export function Settings() {
           >
             Open System Settings
           </button>
+        </div>
+      )}
+
+      {lastError && (
+        <div className="error-banner">
+          <div style={{ marginBottom: 8 }}>
+            <strong>Something went wrong</strong>
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.5 }}>
+            {lastError}
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button className="btn-secondary" onClick={reportIssue}>
+              {logsCopied ? "Logs copied! Paste in the issue" : "Report Issue"}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => setLastError(null)}
+              style={{ padding: "6px 10px" }}
+            >
+              Dismiss
+            </button>
+          </div>
         </div>
       )}
 

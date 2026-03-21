@@ -22,7 +22,7 @@ pub fn register_hotkey(app: &mut App) -> Result<(), Box<dyn std::error::Error>> 
             } else {
                 // Capture the frontmost app/window now — before any overlay appears
                 let target = crate::output::paste::get_frontmost_target();
-                eprintln!("[hotkey] captured target_focus = {:?}", target);
+                log::info!("Hotkey captured target_focus = {:?}", target);
                 *state.target_focus.lock().unwrap() = target;
                 let _ = handle.emit("hotkey-start", ());
             }

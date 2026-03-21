@@ -66,7 +66,7 @@ fn request_accessibility_if_needed() {
         );
         let trusted = AXIsProcessTrustedWithOptions(options);
         CFRelease(options as *mut c_void);
-        eprintln!("[startup] AXIsProcessTrusted = {}", trusted != 0);
+        log::info!("AXIsProcessTrusted = {}", trusted != 0);
     }
 }
 
@@ -99,15 +99,15 @@ fn setup_fifo_listener(app_handle: tauri::AppHandle) {
     let fifo_c = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
     let ret = unsafe { libc::mkfifo(fifo_c.as_ptr(), 0o644) };
     if ret != 0 {
-        eprintln!(
-            "[startup] Failed to create FIFO at {}: {}",
+        log::error!(
+            "Failed to create FIFO at {}: {}",
             fifo_path.display(),
             std::io::Error::last_os_error()
         );
         return;
     }
 
-    eprintln!("[startup] FIFO listener at {}", fifo_path.display());
+    log::info!("FIFO listener at {}", fifo_path.display());
 
     // Spawn a thread that blocks on reading from the FIFO.
     // Each time something is written (and the writer closes), we toggle.
@@ -119,7 +119,7 @@ fn setup_fifo_listener(app_handle: tauri::AppHandle) {
             let mut file = match std::fs::File::open(&fifo_path) {
                 Ok(f) => f,
                 Err(e) => {
-                    eprintln!("[fifo] Failed to open FIFO: {}", e);
+                    log::error!("Failed to open FIFO: {}", e);
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 }
@@ -129,7 +129,7 @@ fn setup_fifo_listener(app_handle: tauri::AppHandle) {
             let mut buf = [0u8; 128];
             let _ = file.read(&mut buf);
 
-            eprintln!("[fifo] Toggle received!");
+            log::info!("FIFO toggle received");
             let state = app_handle.state::<AppState>();
             let is_recording = state.recording.lock().unwrap().is_some();
 
@@ -137,7 +137,7 @@ fn setup_fifo_listener(app_handle: tauri::AppHandle) {
                 let _ = app_handle.emit("hotkey-stop", ());
             } else {
                 let target = crate::output::paste::get_frontmost_target();
-                eprintln!("[fifo] captured target_focus = {:?}", target);
+                log::info!("FIFO captured target_focus = {:?}", target);
                 *state.target_focus.lock().unwrap() = target;
                 let _ = app_handle.emit("hotkey-start", ());
             }
@@ -145,8 +145,48 @@ fn setup_fifo_listener(app_handle: tauri::AppHandle) {
     });
 }
 
+fn log_path() -> std::path::PathBuf {
+    dirs::data_dir()
+        .unwrap_or_default()
+        .join("careless-whisper")
+        .join("careless-whisper.log")
+}
+
+fn init_logging() {
+    use simplelog::*;
+    use std::fs;
+
+    let path = log_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    // Truncate if over 1 MB
+    if let Ok(meta) = fs::metadata(&path) {
+        if meta.len() > 1_000_000 {
+            let _ = fs::write(&path, b"");
+        }
+    }
+
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path);
+
+    let mut loggers: Vec<Box<dyn SharedLogger>> = vec![
+        TermLogger::new(LevelFilter::Debug, Config::default(), TerminalMode::Stderr, ColorChoice::Auto),
+    ];
+
+    if let Ok(f) = file {
+        loggers.push(WriteLogger::new(LevelFilter::Info, Config::default(), f));
+    }
+
+    let _ = CombinedLogger::init(loggers);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    init_logging();
     let settings = Settings::load();
 
     tauri::Builder::default()
@@ -173,7 +213,10 @@ pub fn run() {
             // another app), log the error and continue so the app still starts.
             // The user can change the hotkey from the Settings window.
             if let Err(e) = hotkey::manager::register_hotkey(app) {
-                eprintln!("[startup] Failed to register hotkey: {}. Change it in Settings.", e);
+                log::error!("Failed to register hotkey: {}. Change it in Settings.", e);
+                let _ = app.handle().emit("backend-error", serde_json::json!({
+                    "message": "Could not register hotkey. You can change it in Settings."
+                }));
                 if let Some(win) = app.get_webview_window("settings") {
                     let _ = win.show();
                     let _ = win.set_focus();
@@ -217,6 +260,7 @@ pub fn run() {
             request_accessibility,
             get_launch_at_login,
             set_launch_at_login,
+            get_recent_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
