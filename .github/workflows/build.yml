@@ -13,7 +13,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: ''
+            args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: '--no-default-features'
 
@@ -36,6 +36,10 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Add Intel target for universal binary
+        if: matrix.platform == 'macos-latest'
+        run: rustup target add x86_64-apple-darwin
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -53,7 +57,7 @@ jobs:
         with:
           name: macos
           path: |
-            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
 
       - name: Upload Windows artifacts
         if: matrix.platform == 'windows-latest'
