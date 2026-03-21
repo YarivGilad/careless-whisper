@@ -5,6 +5,7 @@ pub struct RecordingHandle {
     _stream: cpal::Stream,
     pub samples: Arc<Mutex<Vec<f32>>>,
     pub sample_rate: u32,
+    pub channels: u16,
 }
 
 // cpal::Stream is not Send by default on macOS; we only use it from a single
@@ -17,13 +18,11 @@ pub fn start_capture(max_seconds: u32) -> Result<RecordingHandle, String> {
         .default_input_device()
         .ok_or("No input device available")?;
 
-    let config = device
-        .default_input_config()
-        .map_err(|e| e.to_string())?;
+    let config = device.default_input_config().map_err(|e| e.to_string())?;
 
     let sample_rate = config.sample_rate().0;
-    let channels = config.channels() as usize;
-    let max_samples = (sample_rate as usize) * (max_seconds as usize) * channels;
+    let channels = config.channels();
+    let max_samples = (sample_rate as usize) * (max_seconds as usize) * (channels as usize);
 
     let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let samples_clone = samples.clone();
@@ -48,12 +47,14 @@ pub fn start_capture(max_seconds: u32) -> Result<RecordingHandle, String> {
         _stream: stream,
         samples,
         sample_rate,
+        channels,
     })
 }
 
-pub fn stop_capture(handle: RecordingHandle) -> (Vec<f32>, u32) {
+pub fn stop_capture(handle: RecordingHandle) -> (Vec<f32>, u32, u16) {
     let sample_rate = handle.sample_rate;
+    let channels = handle.channels;
     let samples = handle.samples.lock().unwrap().clone();
     // Dropping handle stops the stream.
-    (samples, sample_rate)
+    (samples, sample_rate, channels)
 }

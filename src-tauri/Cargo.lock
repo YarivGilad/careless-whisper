@@ -527,6 +527,7 @@ dependencies = [
  "dirs 5.0.1",
  "env_logger",
  "futures-util",
+ "libc",
  "log",
  "objc2",
  "reqwest 0.12.28",
