@@ -197,4 +197,16 @@ mod platform {
     }
 }
 
+// Linux: no system volume API — feature is a no-op
+#[cfg(target_os = "linux")]
+mod platform {
+    pub fn get_system_volume() -> Result<f32, String> {
+        Err("Volume control not supported on Linux yet".into())
+    }
+
+    pub fn set_system_volume(_level: f32) -> Result<(), String> {
+        Err("Volume control not supported on Linux yet".into())
+    }
+}
+
 pub use platform::{get_system_volume, set_system_volume};
