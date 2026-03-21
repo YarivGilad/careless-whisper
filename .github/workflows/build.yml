@@ -88,6 +88,6 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            artifacts/macos/*.dmg
-            artifacts/windows/*.exe
-            artifacts/windows/*.msi
+            artifacts/**/*.dmg
+            artifacts/**/*.exe
+            artifacts/**/*.msi
