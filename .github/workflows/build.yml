@@ -14,13 +14,13 @@ jobs:
         include:
           - platform: macos-latest
             tauri-args: '--target universal-apple-darwin'
-            cargo-args: '--features metal'
+            cargo-args: ''
           - platform: windows-latest
             tauri-args: ''
-            cargo-args: ''
+            cargo-args: '--no-default-features'
           - platform: ubuntu-22.04
             tauri-args: ''
-            cargo-args: ''
+            cargo-args: '--no-default-features'
 
     runs-on: ${{ matrix.platform }}
 
