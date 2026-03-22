@@ -251,8 +251,6 @@ pub async fn set_active_model(
 pub async fn check_accessibility() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        use std::os::raw::c_void;
-
         #[link(name = "ApplicationServices", kind = "framework")]
         extern "C" {
             fn AXIsProcessTrusted() -> u8;
@@ -319,6 +317,53 @@ pub async fn request_accessibility() -> Result<bool, String> {
     #[cfg(not(target_os = "macos"))]
     {
         Ok(true)
+    }
+}
+
+// ── Microphone Permission ────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn check_microphone() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = crate::check_microphone_permission();
+        let label = match status {
+            0 => "not_determined",
+            1 => "denied",
+            2 => "restricted",
+            3 => "authorized",
+            _ => "unknown",
+        };
+        Ok(label.to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("authorized".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn request_microphone() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::request_microphone_permission();
+        // Give the system a moment to show the dialog, then re-check
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let status = crate::check_microphone_permission();
+        let label = match status {
+            0 => "not_determined",
+            1 => "denied",
+            2 => "restricted",
+            3 => "authorized",
+            _ => "unknown",
+        };
+        Ok(label.to_string())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok("authorized".to_string())
     }
 }
 

@@ -21,6 +21,7 @@ export function Settings() {
   const [saved, setSaved] = useState(false);
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
+  const [micStatus, setMicStatus] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [logsCopied, setLogsCopied] = useState(false);
 
@@ -28,6 +29,7 @@ export function Settings() {
     invoke<Settings>("get_settings").then(setSettings);
     invoke<boolean>("get_launch_at_login").then(setLaunchAtLogin).catch(() => {});
     invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
+    invoke<string>("check_microphone").then(setMicStatus).catch(() => {});
   }, []);
 
   // Listen for backend errors
@@ -54,10 +56,11 @@ export function Settings() {
     );
   };
 
-  // Re-check accessibility when window regains focus (user may have toggled it in System Settings)
+  // Re-check permissions when window regains focus (user may have toggled them in System Settings)
   useEffect(() => {
     const onFocus = () => {
       invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
+      invoke<string>("check_microphone").then(setMicStatus).catch(() => {});
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -104,6 +107,33 @@ export function Settings() {
             }}
           >
             Open System Settings
+          </button>
+        </div>
+      )}
+
+      {micStatus && micStatus !== "authorized" && (
+        <div className="accessibility-banner">
+          <div style={{ marginBottom: 8 }}>
+            <strong>Microphone Permission {micStatus === "denied" ? "Denied" : "Required"}</strong>
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 13, lineHeight: 1.5 }}>
+            {micStatus === "denied"
+              ? "Microphone access was denied. Please enable it in System Settings > Privacy & Security > Microphone."
+              : "Careless Whisper needs microphone access to record your voice for transcription."}
+          </p>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              if (micStatus === "denied") {
+                openUrl("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone");
+              } else {
+                invoke<string>("request_microphone").then((status) => {
+                  setMicStatus(status);
+                });
+              }
+            }}
+          >
+            {micStatus === "denied" ? "Open System Settings" : "Grant Microphone Access"}
           </button>
         </div>
       )}

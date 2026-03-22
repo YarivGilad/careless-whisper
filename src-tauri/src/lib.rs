@@ -22,13 +22,16 @@ pub struct AppState {
 }
 
 /// macOS: Checks if the app has Accessibility permission.
-/// If not, opens the System Settings prompt so the user can grant it.
+/// Only opens the System Settings prompt if the permission is NOT already granted.
+/// This avoids the repeated prompt that macOS shows when calling
+/// AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt=true on every launch.
 #[cfg(target_os = "macos")]
 fn request_accessibility_if_needed() {
     use std::os::raw::c_void;
 
     #[link(name = "ApplicationServices", kind = "framework")]
     extern "C" {
+        fn AXIsProcessTrusted() -> u8;
         fn AXIsProcessTrustedWithOptions(options: *const c_void) -> u8;
     }
 
@@ -54,6 +57,20 @@ fn request_accessibility_if_needed() {
     }
 
     unsafe {
+        // First: check WITHOUT prompting
+        let already_trusted = AXIsProcessTrusted() != 0;
+        log::info!(
+            "[permissions] Accessibility: already_trusted = {}",
+            already_trusted
+        );
+
+        if already_trusted {
+            // Permission is cached and valid — no need to prompt
+            return;
+        }
+
+        // Not trusted — show the prompt once so the user can grant it
+        log::info!("[permissions] Accessibility not granted, showing system prompt");
         let keys = [kAXTrustedCheckOptionPrompt];
         let values = [kCFBooleanTrue];
         let options = CFDictionaryCreate(
@@ -64,10 +81,85 @@ fn request_accessibility_if_needed() {
             &kCFTypeDictionaryKeyCallBacks as *const _ as *const c_void,
             &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
         );
-        let trusted = AXIsProcessTrustedWithOptions(options);
+        let _trusted = AXIsProcessTrustedWithOptions(options);
         CFRelease(options as *mut c_void);
-        log::info!("AXIsProcessTrusted = {}", trusted != 0);
     }
+}
+
+/// macOS: Check microphone authorization status via swift subprocess.
+/// The AVFoundation Objective-C FFI from Rust has symbol resolution issues with
+/// AVMediaTypeAudio, so we shell out to swift which handles it natively.
+/// Returns: 0 = not determined, 1 = denied, 2 = restricted, 3 = authorized
+#[cfg(target_os = "macos")]
+pub fn check_microphone_permission() -> i32 {
+    let output = std::process::Command::new("swift")
+        .args([
+            "-e",
+            "import AVFoundation; print(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)",
+        ])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            let status = String::from_utf8_lossy(&out.stdout)
+                .trim()
+                .parse::<i32>()
+                .unwrap_or(-1);
+            let label = match status {
+                0 => "not_determined",
+                1 => "denied",
+                2 => "restricted",
+                3 => "authorized",
+                _ => "unknown",
+            };
+            log::info!("[permissions] Microphone: status = {} ({})", status, label);
+            status
+        }
+        Ok(out) => {
+            log::warn!(
+                "[permissions] swift mic check failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            -1
+        }
+        Err(e) => {
+            log::warn!("[permissions] failed to run swift: {}", e);
+            -1
+        }
+    }
+}
+
+/// macOS: Request microphone permission via swift subprocess.
+/// Triggers the system permission dialog if status is "not determined".
+/// Blocks for up to 30 seconds waiting for user response.
+#[cfg(target_os = "macos")]
+fn request_microphone_permission() {
+    log::info!("[permissions] Requesting microphone access via AVCaptureDevice");
+    std::thread::spawn(|| {
+        let output = std::process::Command::new("swift")
+            .args([
+                "-e",
+                concat!(
+                    "import AVFoundation; import Foundation; ",
+                    "let sem = DispatchSemaphore(value: 0); ",
+                    "AVCaptureDevice.requestAccess(for: .audio) { granted in ",
+                    "  print(granted ? 3 : 1); sem.signal() ",
+                    "}; ",
+                    "_ = sem.wait(timeout: .now() + 30)"
+                ),
+            ])
+            .output();
+
+        match output {
+            Ok(out) => {
+                let result = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                log::info!("[permissions] Microphone request result: {}", result);
+            }
+            Err(e) => {
+                log::warn!("[permissions] Failed to request mic permission: {}", e);
+            }
+        }
+    });
 }
 
 /// Linux: Writes a PID file and creates a named pipe (FIFO) that listens for
@@ -205,7 +297,33 @@ pub fn run() {
         })
         .setup(|app| {
             #[cfg(target_os = "macos")]
-            request_accessibility_if_needed();
+            {
+                // Log bundle ID for debugging permission identity
+                if let Ok(output) = std::process::Command::new("defaults")
+                    .args(["read", "/proc/curproc/../Info", "CFBundleIdentifier"])
+                    .output()
+                {
+                    log::info!(
+                        "[permissions] Bundle ID from defaults: {}",
+                        String::from_utf8_lossy(&output.stdout).trim()
+                    );
+                }
+                log::info!(
+                    "[permissions] PID = {}, executable = {:?}",
+                    std::process::id(),
+                    std::env::current_exe().ok()
+                );
+
+                // Check + prompt for accessibility only if not already granted
+                request_accessibility_if_needed();
+
+                // Check microphone permission; request if not yet determined
+                let mic_status = check_microphone_permission();
+                if mic_status == 0 {
+                    // Not determined — trigger the system prompt
+                    request_microphone_permission();
+                }
+            }
 
             tray::setup_tray(&app.handle())?;
 
@@ -258,6 +376,8 @@ pub fn run() {
             set_active_model,
             check_accessibility,
             request_accessibility,
+            check_microphone,
+            request_microphone,
             get_launch_at_login,
             set_launch_at_login,
             get_recent_logs,
