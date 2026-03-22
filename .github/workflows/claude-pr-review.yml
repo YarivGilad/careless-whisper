@@ -1,0 +1,64 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    # Run on new/updated PRs, or when @claude is mentioned
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "@claude"
+          claude_args: "--max-turns 5"
+          prompt: |
+            You are a code reviewer for Careless Whisper, a Tauri v2 desktop app (Rust backend + React/TypeScript frontend).
+
+            Review this PR against these criteria:
+
+            ## Correctness
+            - Does the code do what the PR description claims?
+            - Are there obvious bugs or logic errors?
+
+            ## Compatibility
+            - Does it break macOS, Windows, or Linux support?
+            - Platform-specific code must be behind #[cfg(target_os)] guards
+            - Check for conflicts with existing features: volume ducking, file logging, push-to-talk, Settings UI
+
+            ## Code Quality
+            - Follows existing patterns (log::info!/warn!/error! for logging, NOT eprintln!)
+            - Rust: proper error handling with Result, not unwrap() in production paths
+            - TypeScript: matches existing component patterns in src/components/
+            - No unnecessary dependencies added
+
+            ## Security
+            - No command injection in subprocess calls
+            - No secrets or credentials in code
+            - Safe handling of file paths and user input
+
+            ## Architecture
+            - IPC boundary: frontend calls Rust via invoke(), Rust pushes events via emit()
+            - Platform code isolated in appropriate modules
+            - Settings changes go through the Settings struct (serde, persisted to config.json)
+
+            Post a review summary with:
+            1. What the PR does (one paragraph)
+            2. Issues found (if any), categorized by severity
+            3. What's good about the PR
+            4. Verdict: "Approve", "Request changes", or "Needs discussion"
+
+            Do NOT auto-merge. Leave the merge decision to the maintainer.
