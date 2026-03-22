@@ -12,12 +12,14 @@ pub struct ModelInfo {
     pub is_downloaded: bool,
 }
 
-const MODELS: &[(&str, u32, u32)] = &[
-    ("tiny", 75, 390),
-    ("base", 142, 500),
-    ("small", 466, 1024),
-    ("medium", 1500, 2600),
-    ("large-v3", 3000, 5120),
+/// (name, disk_mb, ram_mb, sha256)
+/// Hashes from https://huggingface.co/ggerganov/whisper.cpp — LFS pointer metadata
+const MODELS: &[(&str, u32, u32, &str)] = &[
+    ("tiny",     75,   390,  "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"),
+    ("base",     142,  500,  "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"),
+    ("small",    466,  1024, "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"),
+    ("medium",   1500, 2600, "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"),
+    ("large-v3", 3000, 5120, "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"),
 ];
 
 pub fn models_dir() -> PathBuf {
@@ -34,13 +36,19 @@ pub fn model_path(name: &str) -> PathBuf {
 pub fn list_models() -> Vec<ModelInfo> {
     MODELS
         .iter()
-        .map(|(name, disk_mb, ram_mb)| ModelInfo {
+        .map(|(name, disk_mb, ram_mb, _sha256)| ModelInfo {
             name: name.to_string(),
             disk_size_mb: *disk_mb,
             ram_mb: *ram_mb,
             is_downloaded: model_path(name).exists(),
         })
         .collect()
+}
+
+fn expected_sha256(name: &str) -> Option<&'static str> {
+    MODELS.iter()
+        .find(|(n, _, _, _)| *n == name)
+        .map(|(_, _, _, hash)| *hash)
 }
 
 pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> {
@@ -85,6 +93,21 @@ pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> 
 
     file.flush().await.map_err(|e| e.to_string())?;
     drop(file);
+
+    // Verify SHA256 before making the file available
+    if let Some(expected) = expected_sha256(&name) {
+        let computed = sha256_file(&part_path).map_err(|e| e.to_string())?;
+        if computed != expected {
+            let _ = std::fs::remove_file(&part_path);
+            return Err(format!(
+                "Model '{}' integrity check failed: hash mismatch. \
+                 Expected {}, got {}. The file has been deleted.",
+                name, expected, computed
+            ));
+        }
+        log::info!("[download] SHA256 verified for {}", name);
+    }
+
     std::fs::rename(&part_path, &final_path).map_err(|e| e.to_string())?;
 
     Ok(())
@@ -96,4 +119,21 @@ pub fn delete_model(name: &str) -> Result<(), String> {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
