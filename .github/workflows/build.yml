@@ -84,6 +84,12 @@ jobs:
       - name: Build
         run: pnpm tauri build ${{ matrix.tauri-args }} -- ${{ matrix.cargo-args }}
 
+      - name: Re-sign macOS app bundle
+        if: matrix.platform == 'macos-latest'
+        run: |
+          codesign --force --deep --sign - \
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/Careless\ Whisper.app
+
       - name: Upload macOS artifacts
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v5
