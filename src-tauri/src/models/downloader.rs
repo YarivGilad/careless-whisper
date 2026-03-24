@@ -100,9 +100,10 @@ pub async fn download_model(app: AppHandle, name: String) -> Result<(), String> 
         if computed != expected {
             let _ = std::fs::remove_file(&part_path);
             return Err(format!(
-                "Model '{}' integrity check failed: hash mismatch. \
-                 Expected {}, got {}. The file has been deleted.",
-                name, expected, computed
+                "Model '{}' verification failed — the file may have been updated upstream. \
+                 Please open a GitHub issue at https://github.com/YarivGilad/careless-whisper/issues \
+                 so we can update the checksum. The incomplete file has been deleted.",
+                name
             ));
         }
         log::info!("[download] SHA256 verified for {}", name);
