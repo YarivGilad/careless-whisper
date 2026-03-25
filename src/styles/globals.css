@@ -160,7 +160,11 @@ body {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s;
 }
+
+.btn-danger:hover { background: #e0332a; }
+.btn-danger:active { background: #c72b24; }
 
 .btn-secondary {
   background: #2c2c2e;
@@ -171,7 +175,11 @@ body {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
 }
+
+.btn-secondary:hover { background: #3a3a3c; border-color: #48484a; }
+.btn-secondary:active { background: #48484a; border-color: #636366; }
 
 .error-banner {
   background: rgba(255, 59, 48, 0.12);

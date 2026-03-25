@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { listen } from "@tauri-apps/api/event";
+import { getVersion } from "@tauri-apps/api/app";
 
 interface Settings {
   hotkey: string;
@@ -23,8 +24,10 @@ export function Settings() {
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [logsCopied, setLogsCopied] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
     invoke<Settings>("get_settings").then(setSettings);
     invoke<boolean>("get_launch_at_login").then(setLaunchAtLogin).catch(() => {});
     invoke<boolean>("check_accessibility").then(setAccessibilityGranted).catch(() => {});
@@ -79,9 +82,14 @@ export function Settings() {
 
   return (
     <div>
-      <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 700 }}>
-        Careless Whisper
-      </h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "0 0 20px" }}>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
+          Careless Whisper
+        </h2>
+        {appVersion && (
+          <span style={{ fontSize: 12, opacity: 0.5 }}>v{appVersion}</span>
+        )}
+      </div>
 
       {accessibilityGranted === false && (
         <div className="accessibility-banner">
