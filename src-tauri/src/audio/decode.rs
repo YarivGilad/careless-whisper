@@ -45,7 +45,7 @@ pub fn decode_audio_file(path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
         .codec_params
         .channels
         .map(|layout| layout.count() as u16)
-        .ok_or_else(|| "Missing channel metadata in audio track".to_string())?;
+        .unwrap_or(1); // Default to mono if channel metadata is missing
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())

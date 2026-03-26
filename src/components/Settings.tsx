@@ -63,10 +63,14 @@ export function Settings() {
   }, []);
 
   const reportIssue = async () => {
-    const logs = await invoke<string>("get_recent_logs");
-    await navigator.clipboard.writeText(logs);
-    setLogsCopied(true);
-    window.setTimeout(() => setLogsCopied(false), 3000);
+    try {
+      const logs = await invoke<string>("get_recent_logs");
+      await navigator.clipboard.writeText(logs);
+      setLogsCopied(true);
+      window.setTimeout(() => setLogsCopied(false), 3000);
+    } catch (error) {
+      console.warn("Failed to copy logs to clipboard:", error);
+    }
     await openUrl(
       "https://github.com/YarivGilad/careless-whisper/issues/new?title=Bug+Report&body=%0A%0A---%0APaste+your+logs+here+(already+copied+to+clipboard)"
     );
