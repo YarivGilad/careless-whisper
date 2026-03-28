@@ -82,7 +82,7 @@ jobs:
         run: pnpm install
 
       - name: Run tests
-        run: cd src-tauri && cargo test
+        run: cd src-tauri && cargo test ${{ matrix.cargo-args }}
 
       - name: Build
         run: pnpm tauri build ${{ matrix.tauri-args }} -- ${{ matrix.cargo-args }}
