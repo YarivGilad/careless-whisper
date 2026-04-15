@@ -207,13 +207,23 @@ mod tests {
 
     #[test]
     fn test_model_path_construction() {
-        let path = model_path("base");
-        assert!(path.to_string_lossy().ends_with("ggml-base.bin"));
+        assert_eq!(model_path("base"), models_dir().join("ggml-base.bin"));
+        assert_eq!(
+            model_path("large-v3"),
+            models_dir().join("ggml-large-v3.bin")
+        );
+        assert_eq!(model_path("tiny"), models_dir().join("ggml-tiny.bin"));
+    }
+
+    #[test]
+    fn test_models_dir_uses_careless_whisper() {
+        let dir = models_dir();
+        assert!(dir.to_string_lossy().contains("careless-whisper"));
+        assert_eq!(dir.file_name().unwrap(), "models");
     }
 
     #[test]
     fn test_validate_model_name_valid() {
-        // validate_model_name is in commands.rs, so test via the MODELS list
         let valid = ["tiny", "base", "small", "medium", "large-v3"];
         for name in &valid {
             assert!(
@@ -247,6 +257,51 @@ mod tests {
     }
 
     #[test]
+    fn test_list_models_count() {
+        let models = list_models();
+        assert_eq!(models.len(), 5);
+    }
+
+    #[test]
+    fn test_list_models_returns_all_models() {
+        let models = list_models();
+        assert_eq!(models.len(), 5);
+        let names: Vec<&str> = models.iter().map(|m| m.name.as_str()).collect();
+        assert!(names.contains(&"tiny"));
+        assert!(names.contains(&"base"));
+        assert!(names.contains(&"small"));
+        assert!(names.contains(&"medium"));
+        assert!(names.contains(&"large-v3"));
+    }
+
+    #[test]
+    fn test_list_models_has_correct_sizes() {
+        let models = list_models();
+        let tiny = models.iter().find(|m| m.name == "tiny").unwrap();
+        assert_eq!(tiny.disk_size_mb, 75);
+        assert_eq!(tiny.ram_mb, 390);
+
+        let large = models.iter().find(|m| m.name == "large-v3").unwrap();
+        assert_eq!(large.disk_size_mb, 3000);
+        assert_eq!(large.ram_mb, 5120);
+    }
+
+    #[test]
+    fn test_expected_sha256_for_all_models() {
+        let model_names = ["tiny", "base", "small", "medium", "large-v3"];
+        for name in model_names {
+            let hash = expected_sha256(name);
+            assert!(hash.is_some(), "should have SHA256 for {}", name);
+            let hash = hash.unwrap();
+            assert_eq!(hash.len(), 64, "SHA256 should be 64 hex chars");
+            assert!(
+                hash.chars().all(|c| c.is_ascii_hexdigit()),
+                "should be valid hex"
+            );
+        }
+    }
+
+    #[test]
     fn test_expected_sha256_known() {
         let hash = expected_sha256("base");
         assert!(hash.is_some());
@@ -257,14 +312,43 @@ mod tests {
     }
 
     #[test]
-    fn test_expected_sha256_unknown() {
-        assert!(expected_sha256("nonexistent").is_none());
+    fn test_expected_sha256_unknown_model() {
+        assert!(expected_sha256("unknown").is_none());
+        assert!(expected_sha256("").is_none());
+        assert!(expected_sha256("tiny-en").is_none());
     }
 
     #[test]
-    fn test_list_models_count() {
-        let models = list_models();
-        assert_eq!(models.len(), 5);
+    fn test_validate_model_file_nonexistent() {
+        let result = validate_model_file("nonexistent-model");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("not downloaded"));
+    }
+
+    #[test]
+    fn test_model_download_url_format() {
+        let url = format!(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{}.bin",
+            "base"
+        );
+        assert_eq!(
+            url,
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
+        );
+    }
+
+    #[test]
+    fn test_sha256_known_value() {
+        use sha2::{Digest, Sha256};
+        let data = b"hello";
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let result = format!("{:x}", hasher.finalize());
+        assert_eq!(
+            result,
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
     }
 
     #[test]
@@ -277,17 +361,9 @@ mod tests {
         drop(f);
 
         let hash = sha256_file(&file_path).unwrap();
-        // SHA256 of "hello world"
         assert_eq!(
             hash,
             "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
         );
-    }
-
-    #[test]
-    fn test_validate_model_file_missing() {
-        let result = validate_model_file("nonexistent_model_xyz");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not downloaded"));
     }
 }

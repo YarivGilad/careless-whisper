@@ -334,9 +334,20 @@ fn init_logging() {
 pub fn run() {
     init_logging();
     log::info!("=== Careless Whisper starting ===");
-    log::info!("[system] version={}, os={}, arch={}", env!("CARGO_PKG_VERSION"), std::env::consts::OS, std::env::consts::ARCH);
+    log::info!(
+        "[system] version={}, os={}, arch={}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
     let settings = Settings::load();
-    log::info!("[settings] model='{}', language='{}', hotkey='{}', mode={:?}", settings.active_model, settings.language, settings.hotkey, settings.recording_mode);
+    log::info!(
+        "[settings] model='{}', language='{}', hotkey='{}', mode={:?}",
+        settings.active_model,
+        settings.language,
+        settings.hotkey,
+        settings.recording_mode
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -379,7 +390,7 @@ pub fn run() {
                 // macOS will prompt the user for mic access on first recording attempt.
             }
 
-            tray::setup_tray(&app.handle())?;
+            tray::setup_tray(app.handle())?;
 
             // Register global hotkey — if it fails (e.g. already registered by
             // another app), log the error and continue so the app still starts.

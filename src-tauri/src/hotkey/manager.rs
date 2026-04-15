@@ -80,14 +80,12 @@ pub fn re_register_hotkey(
                             *state.target_focus.lock().unwrap() = target;
                             let _ = handle.emit("hotkey-start", ());
                         }
+                    } else if is_recording {
+                        let _ = handle.emit("hotkey-stop", ());
                     } else {
-                        if is_recording {
-                            let _ = handle.emit("hotkey-stop", ());
-                        } else {
-                            let target = crate::output::paste::get_frontmost_target();
-                            *state.target_focus.lock().unwrap() = target;
-                            let _ = handle.emit("hotkey-start", ());
-                        }
+                        let target = crate::output::paste::get_frontmost_target();
+                        *state.target_focus.lock().unwrap() = target;
+                        let _ = handle.emit("hotkey-start", ());
                     }
                 }
                 ShortcutState::Released => {

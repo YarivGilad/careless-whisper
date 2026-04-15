@@ -184,7 +184,9 @@ mod tests {
         let result = decode_audio_file(&path);
         assert!(result.is_err());
         assert!(
-            result.unwrap_err().contains("did not contain any decodable audio"),
+            result
+                .unwrap_err()
+                .contains("did not contain any decodable audio"),
             "expected empty audio error"
         );
     }

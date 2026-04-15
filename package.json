@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build:ci": "tauri build --target universal-apple-darwin && codesign --force --deep --sign - --identifier com.whispertap.careless-whisper 'src-tauri/target/universal-apple-darwin/release/bundle/macos/Careless Whisper.app' && rm -f src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg && hdiutil create -volname 'Careless Whisper' -srcfolder 'src-tauri/target/universal-apple-darwin/release/bundle/macos/Careless Whisper.app' -ov -format UDZO 'src-tauri/target/universal-apple-darwin/release/bundle/dmg/Careless Whisper.dmg' && echo '✅ Build ready at src-tauri/target/universal-apple-darwin/release/bundle/dmg/Careless Whisper.dmg'"
   },
   "dependencies": {
@@ -18,17 +21,24 @@
     "react-dom": "^19.1.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.4.27",
+    "jsdom": "^29.0.2",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^4.1.4"
   }
 }

@@ -59,33 +59,45 @@ fn emit_transcription_error(app: &AppHandle, message: impl Into<String>) {
     );
 }
 
-fn transcription_inputs(
-    state: &State<'_, AppState>,
-) -> (String, bool, Option<FocusTarget>, String, PathBuf) {
-    let settings = state.settings.lock().unwrap().clone();
-    let model_path = downloader::model_path(&settings.active_model);
-    (
-        settings.language,
-        settings.auto_paste,
-        state.target_focus.lock().unwrap().clone(),
-        settings.active_model,
-        model_path,
-    )
-}
-
-fn spawn_transcription(
-    app: AppHandle,
-    samples_16k: Vec<f32>,
+#[derive(Clone)]
+struct TranscriptionConfig {
     language: String,
     auto_paste: bool,
     target_focus: Option<FocusTarget>,
     active_model: String,
     model_path: PathBuf,
     hide_overlay_on_finish: bool,
-) {
+}
+
+fn transcription_inputs(state: &State<'_, AppState>) -> TranscriptionConfig {
+    let settings = state.settings.lock().unwrap().clone();
+    let model_path = downloader::model_path(&settings.active_model);
+    TranscriptionConfig {
+        language: settings.language,
+        auto_paste: settings.auto_paste,
+        target_focus: state.target_focus.lock().unwrap().clone(),
+        active_model: settings.active_model,
+        model_path,
+        hide_overlay_on_finish: true,
+    }
+}
+
+fn spawn_transcription(app: AppHandle, samples_16k: Vec<f32>, config: TranscriptionConfig) {
+    let TranscriptionConfig {
+        language,
+        auto_paste,
+        target_focus,
+        active_model,
+        model_path,
+        hide_overlay_on_finish,
+    } = config.clone();
     log::info!(
         "[transcribe] starting: model='{}', language='{}', samples={}, auto_paste={}, target={:?}",
-        active_model, language, samples_16k.len(), auto_paste, target_focus
+        active_model,
+        language,
+        samples_16k.len(),
+        auto_paste,
+        target_focus
     );
 
     tokio::task::spawn_blocking(move || {
@@ -120,9 +132,12 @@ fn spawn_transcription(
 
         match result {
             Ok(ref text) => {
-                log::info!("[transcribe] result ({} chars): {:?}", text.len(), &text[..text.len().min(100)]);
+                log::info!(
+                    "[transcribe] result ({} chars): {:?}",
+                    text.len(),
+                    &text[..text.len().min(100)]
+                );
 
-                // Save the user's clipboard before overwriting it
                 let previous_clipboard = crate::output::clipboard::read_clipboard();
 
                 let _ = crate::output::clipboard::copy_to_clipboard(text);
@@ -140,14 +155,12 @@ fn spawn_transcription(
                     if let Some(target) = target_focus {
                         match crate::output::paste::paste_into_target(target) {
                             Ok(()) => {
-                                // Paste succeeded — restore the user's original clipboard
                                 if let Some(prev) = previous_clipboard {
                                     std::thread::sleep(std::time::Duration::from_millis(200));
                                     let _ = crate::output::clipboard::copy_to_clipboard(&prev);
                                 }
                             }
                             Err(error) => {
-                                // Paste failed — keep transcription on clipboard so user can Cmd+V manually
                                 log::warn!("[paste error] {}", error);
                             }
                         }
@@ -221,19 +234,9 @@ pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Resul
 
     let samples_16k =
         crate::audio::resample::resample_to_16k(raw_samples, sample_rate, channels as usize)?;
-    let (language, auto_paste, target_focus, active_model, model_path) =
-        transcription_inputs(&state);
+    let config = transcription_inputs(&state);
 
-    spawn_transcription(
-        app,
-        samples_16k,
-        language,
-        auto_paste,
-        target_focus,
-        active_model,
-        model_path,
-        true,
-    );
+    spawn_transcription(app, samples_16k, config);
 
     Ok(())
 }
@@ -255,19 +258,24 @@ pub async fn transcribe_audio_file(
     let (samples, sample_rate, channels) = crate::audio::decode::decode_audio_file(&path)?;
     let samples_16k =
         crate::audio::resample::resample_to_16k(samples, sample_rate, channels as usize)?;
-    let (language, _auto_paste, _target_focus, active_model, model_path) =
-        transcription_inputs(&state);
 
-    spawn_transcription(
-        app,
-        samples_16k,
+    let TranscriptionConfig {
         language,
-        false,
-        None,
         active_model,
         model_path,
-        false,
-    );
+        ..
+    } = transcription_inputs(&state);
+
+    let config = TranscriptionConfig {
+        language,
+        auto_paste: false,
+        target_focus: None,
+        active_model,
+        model_path,
+        hide_overlay_on_finish: false,
+    };
+
+    spawn_transcription(app, samples_16k, config);
 
     Ok(())
 }

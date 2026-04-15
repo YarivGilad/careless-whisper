@@ -27,7 +27,10 @@ pub fn start_capture(max_seconds: u32) -> Result<RecordingHandle, String> {
 
     log::info!(
         "[audio] device='{}', sample_rate={}, channels={}, max_seconds={}",
-        device_name, sample_rate, channels, max_seconds
+        device_name,
+        sample_rate,
+        channels,
+        max_seconds
     );
 
     let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
@@ -64,7 +67,10 @@ pub fn stop_capture(handle: RecordingHandle) -> (Vec<f32>, u32, u16) {
     let duration_secs = samples.len() as f32 / (sample_rate as f32 * channels as f32);
     log::info!(
         "[audio] stopped: {} samples, {:.1}s, rate={}, channels={}",
-        samples.len(), duration_secs, sample_rate, channels
+        samples.len(),
+        duration_secs,
+        sample_rate,
+        channels
     );
     // Dropping handle stops the stream.
     (samples, sample_rate, channels)

@@ -106,7 +106,6 @@ mod tests {
 
     #[test]
     fn test_settings_missing_field_uses_default() {
-        // JSON without lower_volume_while_recording should default to true
         let json = r#"{
             "hotkey": "CmdOrCtrl+Shift+Space",
             "recording_mode": "toggle",
@@ -168,10 +167,51 @@ mod tests {
             let deserialized: OverlayPosition = serde_json::from_str(json_str).unwrap();
             assert_eq!(deserialized, *expected);
 
-            // Round-trip
             let serialized = serde_json::to_string(expected).unwrap();
             let round_tripped: OverlayPosition = serde_json::from_str(&serialized).unwrap();
             assert_eq!(round_tripped, *expected);
         }
+    }
+
+    #[test]
+    fn test_settings_serialization_push_to_talk() {
+        let settings = Settings {
+            recording_mode: RecordingMode::PushToTalk,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&settings).expect("should serialize");
+        assert!(json.contains("push_to_talk"));
+        let deserialized: Settings = serde_json::from_str(&json).expect("should deserialize");
+        assert!(matches!(
+            deserialized.recording_mode,
+            RecordingMode::PushToTalk
+        ));
+    }
+
+    #[test]
+    fn test_settings_custom_values() {
+        let settings = Settings {
+            hotkey: "Ctrl+Alt+T".to_string(),
+            recording_mode: RecordingMode::PushToTalk,
+            active_model: "large-v3".to_string(),
+            language: "en".to_string(),
+            auto_paste: false,
+            max_recording_seconds: 60,
+            launch_at_login: true,
+            overlay_position: OverlayPosition::BottomCenter,
+            lower_volume_while_recording: false,
+        };
+        assert_eq!(settings.hotkey, "Ctrl+Alt+T");
+        assert!(matches!(settings.recording_mode, RecordingMode::PushToTalk));
+        assert_eq!(settings.active_model, "large-v3");
+        assert_eq!(settings.language, "en");
+        assert!(!settings.auto_paste);
+        assert_eq!(settings.max_recording_seconds, 60);
+        assert!(settings.launch_at_login);
+        assert!(matches!(
+            settings.overlay_position,
+            OverlayPosition::BottomCenter
+        ));
+        assert!(!settings.lower_volume_while_recording);
     }
 }

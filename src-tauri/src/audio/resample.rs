@@ -53,69 +53,87 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_resample_zero_channels_errors() {
-        let samples = vec![0.0f32; 100];
-        let result = resample_to_16k(samples, 16000, 0);
+    fn test_resample_rejects_zero_channels() {
+        let samples = vec![0.0f32; 1024];
+        let result = resample_to_16k(samples, 44100, 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("zero channels"));
+        assert_eq!(result.unwrap_err(), "Audio stream has zero channels");
     }
 
     #[test]
-    fn test_resample_mono_passthrough_at_16k() {
-        let samples = vec![0.1, 0.2, 0.3, 0.4, 0.5];
-        let result = resample_to_16k(samples.clone(), 16000, 1).unwrap();
-        assert_eq!(result, samples);
+    fn test_resample_passes_through_at_target_rate() {
+        let samples: Vec<f32> = (0..16000).map(|i| (i as f32) * 0.001).collect();
+        let result = resample_to_16k(samples.clone(), TARGET_RATE, 1);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert_eq!(output.len(), samples.len());
+        for (i, (orig, resampled)) in samples.iter().zip(output.iter()).enumerate() {
+            assert!(
+                (orig - resampled).abs() < f32::EPSILON,
+                "mismatch at index {}",
+                i
+            );
+        }
     }
 
     #[test]
-    fn test_resample_stereo_to_mono_averaging() {
-        // Stereo interleaved: [L, R, L, R] = [0.2, 0.8, 0.2, 0.8]
-        let samples = vec![0.2, 0.8, 0.2, 0.8];
-        let result = resample_to_16k(samples, 16000, 2).unwrap();
-        assert_eq!(result.len(), 2);
-        assert!((result[0] - 0.5).abs() < 1e-6);
-        assert!((result[1] - 0.5).abs() < 1e-6);
+    fn test_resample_stereo_to_mono() {
+        let samples: Vec<f32> = (0..2048).map(|i| i as f32).collect();
+        let result = resample_to_16k(samples.clone(), TARGET_RATE, 2);
+        assert!(result.is_ok());
+        let mono = result.unwrap();
+        assert_eq!(mono.len(), 1024);
+        for (i, sample) in mono.iter().enumerate() {
+            let expected = ((i * 2) as f32 + ((i * 2 + 1) as f32)) / 2.0;
+            assert!(
+                (sample - expected).abs() < f32::EPSILON,
+                "mismatch at index {}",
+                i
+            );
+        }
     }
 
     #[test]
-    fn test_resample_44100_to_16000() {
-        let num_samples = 44100; // 1 second at 44.1kHz
-        let samples: Vec<f32> = (0..num_samples).map(|i| (i as f32 * 0.001).sin()).collect();
-        let result = resample_to_16k(samples, 44100, 1).unwrap();
-        let expected_len = 16000; // ~1 second at 16kHz
-        // Allow some tolerance due to resampler padding
-        let ratio = result.len() as f64 / expected_len as f64;
-        assert!(ratio > 0.9 && ratio < 1.2, "ratio was {}", ratio);
+    fn test_resample_four_channels_to_mono() {
+        let samples: Vec<f32> = (0..4096).map(|i| i as f32).collect();
+        let result = resample_to_16k(samples.clone(), TARGET_RATE, 4);
+        assert!(result.is_ok());
+        let mono = result.unwrap();
+        assert_eq!(mono.len(), 1024);
     }
 
     #[test]
-    fn test_resample_48000_to_16000() {
-        let num_samples = 48000; // 1 second at 48kHz
-        let samples: Vec<f32> = (0..num_samples).map(|i| (i as f32 * 0.001).sin()).collect();
-        let result = resample_to_16k(samples, 48000, 1).unwrap();
-        let expected_len = 16000;
-        let ratio = result.len() as f64 / expected_len as f64;
-        assert!(ratio > 0.9 && ratio < 1.2, "ratio was {}", ratio);
-    }
-
-    #[test]
-    fn test_resample_short_audio_under_chunk_size() {
-        // Less than 1024 samples
-        let samples: Vec<f32> = (0..500).map(|i| (i as f32 * 0.01).sin()).collect();
+    fn test_resample_output_length_ratio_44100_to_16k() {
+        let samples: Vec<f32> = (0..44100).map(|_| 1.0f32).collect();
         let result = resample_to_16k(samples, 44100, 1);
         assert!(result.is_ok());
+        let output = result.unwrap();
+        let expected_len = (44100.0 * (TARGET_RATE as f64) / 44100.0) as usize;
+        let tolerance = (expected_len as f64 * 0.05) as usize;
+        assert!(
+            (output.len() as isize - expected_len as isize).unsigned_abs() <= tolerance,
+            "output len {} should be near {} (tolerance: {})",
+            output.len(),
+            expected_len,
+            tolerance
+        );
     }
 
     #[test]
-    fn test_resample_empty_at_16k() {
-        let result = resample_to_16k(vec![], 16000, 1).unwrap();
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn test_resample_empty_needs_resampling() {
-        // Empty input at a rate that requires resampling should not panic
-        let result = resample_to_16k(vec![], 44100, 1);
+    fn test_resample_handles_empty_samples() {
+        let samples: Vec<f32> = vec![];
+        let result = resample_to_16k(samples, 44100, 1);
         assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn test_resample_preserves_silence() {
+        let samples: Vec<f32> = vec![0.0f32; 1024];
+        let result = resample_to_16k(samples.clone(), TARGET_RATE, 1);
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(output.iter().all(|s| s.abs() < f32::EPSILON));
     }
 }
