@@ -32,6 +32,10 @@ pub fn transcribe(ctx: &WhisperContext, samples: &[f32], language: &str, transla
     params.set_print_timestamps(false);
     params.set_token_timestamps(false);
     params.set_translate(translate);
+    // Stop whisper from emitting subtitle-style annotations like "(silence)",
+    // "[typing]", "(door creaking)" when the audio is short, quiet, or noisy.
+    params.set_suppress_non_speech_tokens(true);
+    params.set_no_speech_thold(0.5);
 
     let n_threads = std::thread::available_parallelism()
         .map(|n| n.get().min(16) as i32)
@@ -70,5 +74,22 @@ pub fn transcribe(ctx: &WhisperContext, samples: &[f32], language: &str, transla
         .replace("[BLANK_AUDIO]", "")
         .replace("[BLANK AUDIO]", "");
 
-    Ok(text.trim().to_string())
+    let trimmed = text.trim();
+
+    // Catch any subtitle-style annotation that slipped past suppress_non_speech_tokens —
+    // e.g. "(silence)", "[ Silence ]", "(keyboard clicking)", "(door creaking)".
+    // If the entire output is one bracketed annotation, treat it as empty.
+    let looks_like_annotation = {
+        let inner = trimmed
+            .strip_suffix('.')
+            .unwrap_or(trimmed)
+            .trim();
+        (inner.starts_with('(') && inner.ends_with(')'))
+            || (inner.starts_with('[') && inner.ends_with(']'))
+    };
+    if looks_like_annotation {
+        return Ok(String::new());
+    }
+
+    Ok(trimmed.to_string())
 }

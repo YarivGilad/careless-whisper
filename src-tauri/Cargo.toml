@@ -1,6 +1,6 @@
 [package]
 name = "careless-whisper"
-version = "0.5.6"
+version = "0.5.9"
 description = "Local voice-to-text transcription"
 authors = []
 edition = "2021"

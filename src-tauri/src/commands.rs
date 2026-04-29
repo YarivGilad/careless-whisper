@@ -11,6 +11,114 @@ use crate::output::paste::FocusTarget;
 use crate::AppState;
 
 fn position_overlay(app: &AppHandle, win: &tauri::WebviewWindow, position: &OverlayPosition) {
+    #[cfg(target_os = "macos")]
+    position_overlay_macos(app, win, position);
+    #[cfg(not(target_os = "macos"))]
+    position_overlay_physical(app, win, position);
+}
+
+/// Windows + Linux: every coordinate (monitor origin, monitor size, cursor,
+/// `set_position`) is in physical pixels, so no scale-factor arithmetic is
+/// needed for placement. The configured 320x80 logical window size is what
+/// gets turned into physical pixels via the monitor's scale factor when
+/// computing the centering offset.
+#[cfg(not(target_os = "macos"))]
+fn position_overlay_physical(
+    app: &AppHandle,
+    win: &tauri::WebviewWindow,
+    position: &OverlayPosition,
+) {
+    use tauri::PhysicalPosition;
+
+    let cursor_pos = app.cursor_position().ok();
+    let monitors = app.available_monitors().unwrap_or_default();
+    for (i, m) in monitors.iter().enumerate() {
+        log::info!(
+            "[overlay] monitor[{}] origin={:?} size={:?} scale={}",
+            i,
+            m.position(),
+            m.size(),
+            m.scale_factor()
+        );
+    }
+
+    let cursor_monitor = cursor_pos.as_ref().and_then(|pos| {
+        monitors
+            .iter()
+            .find(|m| {
+                let left = m.position().x as f64;
+                let top = m.position().y as f64;
+                let right = left + m.size().width as f64;
+                let bottom = top + m.size().height as f64;
+                pos.x >= left && pos.x < right && pos.y >= top && pos.y < bottom
+            })
+            .cloned()
+    });
+
+    log::info!(
+        "[overlay] cursor={:?}, hit_monitor_origin={:?}",
+        cursor_pos,
+        cursor_monitor.as_ref().map(|m| m.position())
+    );
+
+    let monitor = cursor_monitor
+        .or_else(|| win.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten());
+
+    let monitor = match monitor {
+        Some(m) => m,
+        None => {
+            log::warn!("[overlay] no monitor found");
+            return;
+        }
+    };
+
+    let scale = monitor.scale_factor();
+    let origin_x = monitor.position().x as f64;
+    let origin_y = monitor.position().y as f64;
+    let screen_w = monitor.size().width as f64;
+    let screen_h = monitor.size().height as f64;
+
+    let overlay_w = 320.0 * scale;
+    let overlay_h = 80.0 * scale;
+    let margin = 16.0 * scale;
+    let top_offset = 40.0 * scale;
+
+    let offset_x = match position {
+        OverlayPosition::TopLeft => margin,
+        OverlayPosition::TopRight => screen_w - overlay_w - margin,
+        OverlayPosition::TopCenter | OverlayPosition::BottomCenter => {
+            (screen_w - overlay_w) / 2.0
+        }
+    };
+    let offset_y = match position {
+        OverlayPosition::BottomCenter => screen_h - overlay_h - margin,
+        _ => top_offset,
+    };
+
+    let x_phys = origin_x + offset_x;
+    let y_phys = origin_y + offset_y;
+
+    log::info!(
+        "[overlay] target_origin=({}, {}), {}x{} @ {}x, overlay_phys=({}, {}), position={:?}",
+        origin_x,
+        origin_y,
+        screen_w,
+        screen_h,
+        scale,
+        x_phys,
+        y_phys,
+        position
+    );
+    let _ = win.set_position(PhysicalPosition::new(x_phys, y_phys));
+}
+
+#[cfg(target_os = "macos")]
+fn position_overlay_macos(
+    app: &AppHandle,
+    win: &tauri::WebviewWindow,
+    position: &OverlayPosition,
+) {
     use tauri::PhysicalPosition;
 
     // Find the monitor the user is actually working on (cursor's monitor).
@@ -233,6 +341,21 @@ fn spawn_transcription(
         match result {
             Ok(ref text) => {
                 log::info!("[transcribe] result ({} chars): {:?}", text.len(), &text[..text.len().min(100)]);
+
+                // Whisper sometimes returns nothing for short/quiet/noisy audio (after
+                // suppress_non_speech_tokens + annotation filter). Don't stomp the user's
+                // clipboard or paste-spam in that case — just hide the overlay and bail.
+                if text.trim().is_empty() {
+                    log::info!("[transcribe] empty result — skipping clipboard/paste");
+                    if hide_overlay_on_finish {
+                        hide_overlay(&app);
+                    }
+                    let _ = app.emit(
+                        "transcription-complete",
+                        serde_json::json!({ "text": "" }),
+                    );
+                    return;
+                }
 
                 // Save the user's clipboard before overwriting it
                 let previous_clipboard = crate::output::clipboard::read_clipboard();

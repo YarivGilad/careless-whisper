@@ -185,27 +185,36 @@ pub fn paste_into_target(target: FocusTarget) -> Result<(), String> {
         );
     }
 
-    // Send Ctrl+V
+    // Send Ctrl+V using SCAN CODES (KEYEVENTF_SCANCODE) so the keystroke is
+    // layout-independent. Sending wVk=VK_V breaks when the foreground thread
+    // is on a non-Latin keyboard layout (e.g. user switched to Hebrew between
+    // hotkey-stop and transcribe-complete) — the receiving app then interprets
+    // the virtual key under the active layout and Ctrl+V is no longer the paste
+    // accelerator. Physical scan codes (LCtrl=0x1D, V=0x2F) bypass that.
+    const SCAN_LCTRL: u16 = 0x1D;
+    const SCAN_V: u16 = 0x2F;
     unsafe {
         let mut inputs: [INPUT; 4] = mem::zeroed();
 
         // Ctrl down
         inputs[0].r#type = INPUT_KEYBOARD;
-        inputs[0].Anonymous.ki.wVk = VK_CONTROL;
+        inputs[0].Anonymous.ki.wScan = SCAN_LCTRL;
+        inputs[0].Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE;
 
         // V down
         inputs[1].r#type = INPUT_KEYBOARD;
-        inputs[1].Anonymous.ki.wVk = VK_V;
+        inputs[1].Anonymous.ki.wScan = SCAN_V;
+        inputs[1].Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE;
 
         // V up
         inputs[2].r#type = INPUT_KEYBOARD;
-        inputs[2].Anonymous.ki.wVk = VK_V;
-        inputs[2].Anonymous.ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[2].Anonymous.ki.wScan = SCAN_V;
+        inputs[2].Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
 
         // Ctrl up
         inputs[3].r#type = INPUT_KEYBOARD;
-        inputs[3].Anonymous.ki.wVk = VK_CONTROL;
-        inputs[3].Anonymous.ki.dwFlags = KEYEVENTF_KEYUP;
+        inputs[3].Anonymous.ki.wScan = SCAN_LCTRL;
+        inputs[3].Anonymous.ki.dwFlags = KEYEVENTF_SCANCODE | KEYEVENTF_KEYUP;
 
         let sent = SendInput(&inputs, mem::size_of::<INPUT>() as i32);
         if sent != 4 {
