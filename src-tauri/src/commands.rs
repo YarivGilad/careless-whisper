@@ -257,7 +257,7 @@ fn spawn_transcription(
 
                 if clipboard_ok && auto_paste {
                     if let Some(target) = target_focus {
-                        match crate::output::paste::paste_into_target(target) {
+                        match crate::output::paste::paste_into_target(target, text) {
                             Ok(()) => {
                                 // Paste succeeded — restore the user's original clipboard
                                 if let Some(prev) = previous_clipboard {
