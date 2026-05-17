@@ -37,7 +37,7 @@ function SettingsWindow() {
     }
 
     if (event.type === "transcription-complete") {
-      setToastMessage("Transcription copied to clipboard");
+      setToastMessage("Transcription complete");
       setToastVisible(true);
     }
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -16,6 +16,7 @@ interface Settings {
   overlay_position: "top_center" | "bottom_center" | "top_left" | "top_right";
   lower_volume_while_recording: boolean;
   translate_to_english: boolean;
+  realtime_transcription: boolean;
 }
 
 const AUDIO_FILE_FILTERS = [
@@ -24,6 +25,8 @@ const AUDIO_FILE_FILTERS = [
     extensions: ["mp3", "wav", "m4a", "mp4", "aac", "flac", "ogg", "oga"],
   },
 ];
+
+const AUTOSAVE_DEBOUNCE_MS = 600;
 
 export function Settings() {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -36,6 +39,28 @@ export function Settings() {
   const [appVersion, setAppVersion] = useState("");
   const [selectedAudioPath, setSelectedAudioPath] = useState<string | null>(null);
   const [transcribingFile, setTranscribingFile] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [finalizingRecording, setFinalizingRecording] = useState(false);
+  const settingsRef = useRef<Settings | null>(null);
+  const saveTimerRef = useRef<number | null>(null);
+  const savedTimerRef = useRef<number | null>(null);
+  const saveRevisionRef = useRef(0);
+  const inFlightSavesRef = useRef(0);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+      if (savedTimerRef.current !== null) {
+        window.clearTimeout(savedTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     void getVersion().then(setAppVersion).catch(() => {});
@@ -51,18 +76,46 @@ export function Settings() {
     const unlistenTranscriptionError = listen<{ message: string }>("transcription-error", (e) => {
       setLastError(e.payload.message);
       setTranscribingFile(false);
+      setFinalizingRecording(false);
     });
     const unlistenComplete = listen<{ text: string }>("transcription-complete", () => {
       setTranscribingFile(false);
+      setFinalizingRecording(false);
     });
-    const unlistenSettingsUpdated = listen("settings-updated", () => {
-      void invoke<Settings>("get_settings").then(setSettings);
+    const unlistenRecordingStarted = listen("recording-started", () => {
+      setRecording(true);
+      setFinalizingRecording(false);
+    });
+    const unlistenRecordingStopped = listen<{ finalizing?: boolean }>("recording-stopped", (e) => {
+      setRecording(false);
+      setFinalizingRecording(e.payload?.finalizing ?? true);
+    });
+    const unlistenSettingsUpdated = listen<{ settings?: Settings }>("settings-updated", (e) => {
+      if (saveTimerRef.current !== null || inFlightSavesRef.current > 0) {
+        return;
+      }
+
+      if (e.payload?.settings) {
+        settingsRef.current = e.payload.settings;
+        setSettings(e.payload.settings);
+        return;
+      }
+
+      void invoke<Settings>("get_settings").then((nextSettings) => {
+        if (saveTimerRef.current !== null || inFlightSavesRef.current > 0) {
+          return;
+        }
+        settingsRef.current = nextSettings;
+        setSettings(nextSettings);
+      });
     });
 
     return () => {
       void unlistenError.then((fn) => fn());
       void unlistenTranscriptionError.then((fn) => fn());
       void unlistenComplete.then((fn) => fn());
+      void unlistenRecordingStarted.then((fn) => fn());
+      void unlistenRecordingStopped.then((fn) => fn());
       void unlistenSettingsUpdated.then((fn) => fn());
     };
   }, []);
@@ -89,16 +142,80 @@ export function Settings() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const save = async () => {
-    if (!settings) return;
+  const showSavedState = () => {
+    setSaved(true);
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current);
+    }
+    savedTimerRef.current = window.setTimeout(() => {
+      setSaved(false);
+      savedTimerRef.current = null;
+    }, 1800);
+  };
+
+  const saveSettings = async (nextSettings: Settings, revision: number) => {
+    inFlightSavesRef.current += 1;
     setSaving(true);
     try {
-      await invoke("update_settings", { settings });
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2000);
+      await invoke("update_settings", { settings: nextSettings });
+      if (revision === saveRevisionRef.current) {
+        showSavedState();
+      }
     } finally {
-      setSaving(false);
+      inFlightSavesRef.current = Math.max(0, inFlightSavesRef.current - 1);
+      if (inFlightSavesRef.current === 0) {
+        setSaving(false);
+      }
     }
+  };
+
+  const persistSettings = (nextSettings: Settings, previousSettings: Settings, revision: number) => {
+    void saveSettings(nextSettings, revision).catch((error) => {
+      if (revision !== saveRevisionRef.current) {
+        return;
+      }
+      settingsRef.current = previousSettings;
+      setSettings(previousSettings);
+      setLastError(`Failed to save settings: ${String(error)}`);
+    });
+  };
+
+  const updateSettings = (
+    patch: Partial<Settings> | ((current: Settings) => Settings),
+    options: { debounce?: boolean } = {}
+  ) => {
+    const previousSettings = settingsRef.current;
+    if (!previousSettings) return;
+
+    const nextSettings =
+      typeof patch === "function" ? patch(previousSettings) : { ...previousSettings, ...patch };
+    const revision = saveRevisionRef.current + 1;
+    saveRevisionRef.current = revision;
+
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    setLastError(null);
+    setSaved(false);
+
+    const runSave = () => {
+      saveTimerRef.current = null;
+      persistSettings(nextSettings, previousSettings, revision);
+    };
+
+    if (options.debounce) {
+      saveTimerRef.current = window.setTimeout(runSave, AUTOSAVE_DEBOUNCE_MS);
+    } else {
+      runSave();
+    }
+  };
+
+  const setRealtimeMode = (enabled: boolean) => {
+    updateSettings({ realtime_transcription: enabled });
   };
 
   const chooseAudioFile = async () => {
@@ -128,6 +245,21 @@ export function Settings() {
     }
   };
 
+  const toggleRecording = async () => {
+    setLastError(null);
+    try {
+      if (recording) {
+        await invoke("stop_recording");
+      } else {
+        await invoke("start_recording_from_settings_with_target_delay");
+      }
+    } catch (error) {
+      setRecording(false);
+      setFinalizingRecording(false);
+      setLastError(String(error));
+    }
+  };
+
   if (!settings) return <div>Loading…</div>;
 
   return (
@@ -136,9 +268,11 @@ export function Settings() {
         <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>
           Careless Whisper
         </h2>
-        {appVersion && (
-          <span style={{ fontSize: 12, opacity: 0.5 }}>v{appVersion}</span>
-        )}
+        <div className="settings-header-meta">
+          {saving && <span className="settings-save-status">Saving...</span>}
+          {!saving && saved && <span className="settings-save-status settings-save-status-saved">Saved</span>}
+          {appVersion && <span>v{appVersion}</span>}
+        </div>
       </div>
 
       {accessibilityGranted === false && (
@@ -188,6 +322,37 @@ export function Settings() {
         </div>
       )}
 
+      <div className="settings-section recording-control">
+        <div>
+          <label className="settings-label">Recording</label>
+          <div className="recording-helper">
+            The hotkey starts immediately. The button hides Settings first; focus the target field when it closes.
+          </div>
+          <div className="recording-mode-row">
+            <button
+              type="button"
+              className={`mode-pill ${
+                settings.realtime_transcription ? "mode-pill-armed" : "mode-pill-disabled"
+              }`}
+              onClick={() => setRealtimeMode(!settings.realtime_transcription)}
+            >
+              {settings.realtime_transcription ? "Realtime armed" : "Realtime disabled"}
+            </button>
+            {settings.auto_paste && (
+              <span className="mode-pill mode-pill-armed">Auto-paste on</span>
+            )}
+          </div>
+        </div>
+        <button
+          className={recording ? "btn-danger" : "btn-primary"}
+          onClick={() => void toggleRecording()}
+          disabled={finalizingRecording}
+          title="Starts after Settings hides; focus the destination field when it closes."
+        >
+          {recording ? "Stop Recording" : finalizingRecording ? "Transcribing..." : "Start Recording"}
+        </button>
+      </div>
+
       <div className="settings-section">
         <label className="settings-label">Transcribe Audio File</label>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -213,7 +378,7 @@ export function Settings() {
           className="settings-input"
           value={settings.hotkey}
           onChange={(e) =>
-            setSettings({ ...settings, hotkey: e.target.value })
+            updateSettings({ hotkey: e.target.value }, { debounce: true })
           }
           placeholder="e.g. CmdOrCtrl+Shift+Space"
         />
@@ -225,8 +390,7 @@ export function Settings() {
           className="settings-select"
           value={settings.recording_mode}
           onChange={(e) =>
-            setSettings({
-              ...settings,
+            updateSettings({
               recording_mode: e.target.value as Settings["recording_mode"],
             })
           }
@@ -242,7 +406,7 @@ export function Settings() {
           className="settings-select"
           value={settings.language}
           onChange={(e) =>
-            setSettings({ ...settings, language: e.target.value })
+            updateSettings({ language: e.target.value })
           }
         >
           <option value="auto">Auto-detect</option>
@@ -277,8 +441,7 @@ export function Settings() {
           className="settings-select"
           value={settings.overlay_position}
           onChange={(e) =>
-            setSettings({
-              ...settings,
+            updateSettings({
               overlay_position: e.target.value as Settings["overlay_position"],
             })
           }
@@ -299,22 +462,29 @@ export function Settings() {
           max={600}
           value={settings.max_recording_seconds}
           onChange={(e) =>
-            setSettings({
-              ...settings,
+            updateSettings({
               max_recording_seconds: Number.parseInt(e.target.value, 10) || 120,
-            })
+            }, { debounce: true })
           }
         />
       </div>
 
       <div className="settings-section">
         <div className="settings-toggle">
+          <span>Realtime transcription</span>
+          <input
+            type="checkbox"
+            checked={settings.realtime_transcription}
+            onChange={(e) => setRealtimeMode(e.target.checked)}
+          />
+        </div>
+        <div className="settings-toggle">
           <span>Auto-paste after transcription</span>
           <input
             type="checkbox"
             checked={settings.auto_paste}
             onChange={(e) =>
-              setSettings({ ...settings, auto_paste: e.target.checked })
+              updateSettings({ auto_paste: e.target.checked })
             }
           />
         </div>
@@ -324,7 +494,7 @@ export function Settings() {
             type="checkbox"
             checked={settings.lower_volume_while_recording}
             onChange={(e) =>
-              setSettings({ ...settings, lower_volume_while_recording: e.target.checked })
+              updateSettings({ lower_volume_while_recording: e.target.checked })
             }
           />
         </div>
@@ -334,7 +504,7 @@ export function Settings() {
             type="checkbox"
             checked={settings.translate_to_english}
             onChange={(e) =>
-              setSettings({ ...settings, translate_to_english: e.target.checked })
+              updateSettings({ translate_to_english: e.target.checked })
             }
           />
         </div>
@@ -356,10 +526,6 @@ export function Settings() {
           />
         </div>
       </div>
-
-      <button className="btn-primary" onClick={() => void save()} disabled={saving}>
-        {saving ? "Saving…" : saved ? "Saved!" : "Save Settings"}
-      </button>
 
       <div className="help-section">
         <p style={{ fontSize: 12, color: "#8e8e93", marginBottom: 8 }}>

@@ -83,7 +83,7 @@ mod tests {
         let samples: Vec<f32> = (0..num_samples).map(|i| (i as f32 * 0.001).sin()).collect();
         let result = resample_to_16k(samples, 44100, 1).unwrap();
         let expected_len = 16000; // ~1 second at 16kHz
-        // Allow some tolerance due to resampler padding
+                                  // Allow some tolerance due to resampler padding
         let ratio = result.len() as f64 / expected_len as f64;
         assert!(ratio > 0.9 && ratio < 1.2, "ratio was {}", ratio);
     }

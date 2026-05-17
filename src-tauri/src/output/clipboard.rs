@@ -29,7 +29,5 @@ fn try_copy(text: &str) -> Result<(), String> {
 }
 
 pub fn read_clipboard() -> Option<String> {
-    Clipboard::new()
-        .ok()
-        .and_then(|mut cb| cb.get_text().ok())
+    Clipboard::new().ok().and_then(|mut cb| cb.get_text().ok())
 }

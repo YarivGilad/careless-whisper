@@ -58,13 +58,10 @@ pub fn re_register_hotkey(
     new_hotkey: &str,
 ) -> Result<(), String> {
     let shortcuts = app.global_shortcut();
+    let old_was_registered = shortcuts.is_registered(old_hotkey);
 
-    if shortcuts.is_registered(old_hotkey) {
-        shortcuts
-            .unregister(old_hotkey)
-            .map_err(|e| e.to_string())?;
-    }
-
+    // Register the new shortcut before touching the old one so a malformed
+    // autosaved hotkey cannot leave the app with no working shortcut.
     let handle = app.clone();
     shortcuts
         .on_shortcut(new_hotkey, move |_app, _shortcut, event| {
@@ -98,5 +95,14 @@ pub fn re_register_hotkey(
                 }
             }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    if old_was_registered {
+        if let Err(error) = shortcuts.unregister(old_hotkey) {
+            let _ = shortcuts.unregister(new_hotkey);
+            return Err(error.to_string());
+        }
+    }
+
+    Ok(())
 }
