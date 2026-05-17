@@ -5,9 +5,22 @@
 
 # Careless Whisper
 
-A lightweight, always-on desktop app for local voice-to-text transcription. Lives in the system tray / menu bar, records on a global hotkey, transcribes locally with Whisper, and pastes the result into your focused app. No cloud. No data leaves your machine.
+Careless Whisper is a lightweight, always-on desktop app for local voice-to-text transcription. It lives in the system tray / menu bar, records from a global hotkey, transcribes locally with Whisper, and keeps your audio on your machine.
+
+The original stop-to-transcribe workflow is still here: press the hotkey, speak, press it again, and the final transcript is pasted into your focused app. Optional realtime mode shows partial transcription text in the overlay while you are still recording.
+
+No cloud. No accounts. No data leaves your machine.
 
 Supports **macOS** and **Windows**.
+
+## Realtime Dictation
+
+- **Realtime transcription mode** - optional partial transcript updates while recording.
+- **Live overlay text** - the recording overlay can show the growing transcript instead of only a timer.
+- **Classic mode preserved** - final transcription and paste still use the reliable batch path.
+- **Local-first experiments** - realtime POC notes, tuning docs, and test scripts are kept in `docs/` and `poc/`.
+
+Realtime mode is experimental. It currently works by transcribing short chunks while capture continues, so it is closer to near-realtime dictation than character-by-character streaming. Batch mode remains the dependable fallback.
 
 **Website:** [yarivgilad.github.io/careless-whisper](https://yarivgilad.github.io/careless-whisper/)
 
@@ -53,7 +66,7 @@ After that, the app will open normally.
 
 ### Windows
 
-1. Download the installer from the [Releases](https://github.com/yarivgilad/careless-whisper/releases) page.
+1. Download the installer from the [Releases](https://github.com/YarivGilad/careless-whisper/releases) page.
 2. Run the installer and follow the prompts.
 
 > The app lives in the **system tray** (bottom-right of your screen).
@@ -67,14 +80,39 @@ The Settings window will open automatically because no model is downloaded yet.
 3. Your OS will ask for **Microphone** access the first time you record — allow it.
 4. **macOS only:** Go to **System Settings → Privacy & Security → Accessibility** and enable Careless Whisper so it can paste text into other apps.
 
-### Record and transcribe
+### Classic dictation
 
 1. Click into any text field in any app (your target).
 2. Press the hotkey (default: **Cmd+Shift+Space** on macOS, **Ctrl+Shift+Space** on Windows) — a small recording indicator appears.
 3. Speak.
 4. Press the hotkey again to stop — the transcribed text is pasted directly where your cursor was.
 
-The hotkey, language, and other options can be changed from **Settings** in the tray menu.
+Click the menu-bar icon to open **Settings**. Secondary-click the icon to open
+the app menu with language and quit actions. Settings save automatically as you
+change them.
+
+The Settings **Start Recording** button hides Settings briefly before recording
+starts. Focus the destination text field when Settings closes so the app can
+capture the target cursor. The global hotkey is still the fastest and most
+reliable way to start from an already-focused text field.
+
+### Realtime transcription
+
+Enable **Realtime transcription** in Settings to show partial transcript text in
+the overlay while recording. The recording bubble also shows the current mode
+and lets you arm or disable realtime mode while a recording is active. The
+bubble can be dragged if it appears in an awkward spot.
+
+When **Auto-paste after transcription** is also enabled, realtime chunks are
+typed into the focused app during recording through the captured hotkey target.
+When you stop, realtime mode skips the old full batch transcription path because
+the text was already produced during recording. Very short realtime recordings
+that stop before any chunk returns fall back to the classic final pass.
+
+Platform note: realtime capture and Whisper chunking are cross-platform Rust
+paths, but the direct live-typing path is currently macOS-specific. Windows and
+Linux keep the clipboard-plus-paste fallback for realtime chunks and need
+dedicated QA before claiming parity, especially on Linux Wayland sessions.
 
 ## Default Hotkey
 
@@ -104,6 +142,27 @@ On first launch the app will prompt you to download a model. Models are stored l
 - No special permissions needed.
 
 ---
+
+## Development Docs
+
+Realtime dictation work is tracked separately so the POC, plan, and open
+questions stay discoverable.
+
+| Path | Purpose |
+|---|---|
+| `docs/realtime_whisper_discussion.md` | Original realtime dictation architecture discussion and feasibility notes. |
+| `docs/realtime_whisper/plan.md` | Phase plan for realtime dictation, from standalone POC through app integration. |
+| `docs/realtime_whisper/implementation_tracker.md` | POC status, completed realtime experiments, and next test commands. |
+| `docs/realtime_whisper/current_issues.md` | Active risks, resolved findings, and tuning questions. |
+| `poc/README.md` | POC runbook and file map. Start here for local realtime experiments. |
+| `poc/realtime_mic_poc.py` | Continuous/chunked ffmpeg capture runner that invokes local `whisper.cpp`. |
+| `poc/run_whisper_stream.sh` | Wrapper for the `whisper-stream` comparison path. |
+| `poc/test_samples.md` | Fixed English and Hebrew read-aloud samples for repeatable comparisons. |
+| `docs/security/audit-2026-03-22.md` | Security audit notes. |
+| `docs/index.html` and `docs/assets/` | Static project website assets. |
+
+Generated POC artifacts live under `poc/audio/`, `poc/models/`, and
+`poc/vendor/`; they are documented in `poc/README.md` and ignored by git.
 
 ## Building from Source
 

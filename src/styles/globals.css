@@ -11,7 +11,7 @@ body {
 .overlay-root {
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   width: 100vw;
   height: 100vh;
   pointer-events: none;
@@ -21,15 +21,130 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
+  padding: 5px 10px;
   background: rgba(30, 30, 30, 0.88);
   border-radius: 9999px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.overlay-pill:active {
+  cursor: grabbing;
+}
+
+.overlay-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .overlay-recording {
   animation: pill-glow 2s ease-in-out infinite;
+}
+
+.overlay-recording-live {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: min(340px, calc(100vw - 16px));
+  border-radius: 12px;
+}
+
+.overlay-partial {
+  max-width: 320px;
+  max-height: 202px;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  opacity: 0.9;
+  scrollbar-width: none;
+}
+
+.overlay-partial::-webkit-scrollbar {
+  display: none;
+}
+
+.overlay-partial-pending {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.overlay-mode-badge,
+.overlay-target-badge,
+.overlay-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 16px;
+  border-radius: 9999px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.overlay-mode-badge,
+.overlay-target-badge {
+  padding: 0 6px;
+}
+
+.overlay-mode-badge-live {
+  background: rgba(16, 185, 129, 0.18);
+  border: 1px solid rgba(16, 185, 129, 0.55);
+  color: #d1fae5;
+}
+
+.overlay-mode-badge-disabled {
+  background: rgba(142, 142, 147, 0.14);
+  border: 1px solid rgba(142, 142, 147, 0.4);
+  color: #d1d1d6;
+}
+
+.overlay-target-badge-ready {
+  background: rgba(10, 132, 255, 0.18);
+  border: 1px solid rgba(10, 132, 255, 0.55);
+  color: #dbeafe;
+}
+
+.overlay-target-badge-muted {
+  background: rgba(255, 159, 10, 0.14);
+  border: 1px solid rgba(255, 159, 10, 0.4);
+  color: #ffe8b5;
+}
+
+.overlay-mode-badge-live::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #34d399;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.overlay-mode-toggle {
+  pointer-events: auto;
+  padding: 0 7px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #fff;
+  cursor: pointer;
+}
+
+.overlay-mode-toggle:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.overlay-mode-toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 @keyframes pill-glow {
@@ -159,6 +274,22 @@ body {
   overflow-y: auto;
 }
 
+.settings-header-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #8e8e93;
+  font-size: 12px;
+}
+
+.settings-save-status {
+  color: #d1d1d6;
+}
+
+.settings-save-status-saved {
+  color: #10b981;
+}
+
 .accessibility-banner {
   background: rgba(255, 179, 0, 0.12);
   border: 1px solid rgba(255, 179, 0, 0.4);
@@ -174,6 +305,67 @@ body {
 
 .settings-section {
   margin-bottom: 24px;
+}
+
+.recording-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #242426;
+  border: 1px solid #343438;
+  border-radius: 8px;
+}
+
+.recording-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.recording-helper {
+  margin: 0 0 8px;
+  color: #8e8e93;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  appearance: none;
+  cursor: default;
+}
+
+.mode-pill-armed {
+  background: rgba(16, 185, 129, 0.14);
+  color: #d1fae5;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+
+.mode-pill-disabled {
+  background: rgba(142, 142, 147, 0.14);
+  color: #d1d1d6;
+  border: 1px solid rgba(142, 142, 147, 0.35);
+}
+
+button.mode-pill {
+  cursor: pointer;
+}
+
+button.mode-pill:hover {
+  filter: brightness(1.15);
+}
+
+button.mode-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .settings-label {

@@ -1,0 +1,5 @@
+audio/
+models/*.bin
+vendor/whisper.cpp/
+__pycache__/
+*.pyc

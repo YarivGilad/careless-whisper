@@ -31,6 +31,8 @@ pub struct Settings {
     pub lower_volume_while_recording: bool,
     #[serde(default)]
     pub translate_to_english: bool,
+    #[serde(default)]
+    pub realtime_transcription: bool,
 }
 
 fn default_true() -> bool {
@@ -50,6 +52,7 @@ impl Default for Settings {
             overlay_position: OverlayPosition::TopCenter,
             lower_volume_while_recording: true,
             translate_to_english: false,
+            realtime_transcription: false,
         }
     }
 }
@@ -97,6 +100,7 @@ mod tests {
         assert!(!s.launch_at_login);
         assert_eq!(s.overlay_position, OverlayPosition::TopCenter);
         assert!(s.lower_volume_while_recording);
+        assert!(!s.realtime_transcription);
     }
 
     #[test]
@@ -122,6 +126,7 @@ mod tests {
         }"#;
         let settings: Settings = serde_json::from_str(json).unwrap();
         assert!(settings.lower_volume_while_recording);
+        assert!(!settings.realtime_transcription);
     }
 
     #[test]
@@ -136,6 +141,7 @@ mod tests {
             "launch_at_login": false,
             "overlay_position": "top_center",
             "lower_volume_while_recording": true,
+            "realtime_transcription": false,
             "unknown_future_field": 42,
             "another_unknown": "hello"
         }"#;

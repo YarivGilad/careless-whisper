@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
@@ -10,19 +11,34 @@ use crate::models::downloader::{self, ModelInfo};
 use crate::output::paste::FocusTarget;
 use crate::AppState;
 
+const OVERLAY_WIDTH: f64 = 360.0;
+const OVERLAY_BASE_HEIGHT: f64 = 120.0;
+
+fn preview_text(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let mut preview = String::new();
+
+    for _ in 0..max_chars {
+        match chars.next() {
+            Some(ch) => preview.push(ch),
+            None => return preview,
+        }
+    }
+
+    if chars.next().is_some() {
+        preview.push_str("...");
+    }
+
+    preview
+}
+
 fn position_overlay(app: &AppHandle, win: &tauri::WebviewWindow, position: &OverlayPosition) {
     use tauri::PhysicalPosition;
 
     // Find the monitor the user is actually working on (cursor's monitor).
-    // Notes on Tauri 2.x + macOS coordinate quirks:
-    //   - `monitor_from_point` is unreliable on macOS — we hit-test manually.
-    //   - `monitor.position()` is in primary-scale logical points, but
-    //     `monitor.size()` is in physical pixels. Dividing by scale gives
-    //     logical size, which lines up with the cursor coordinate space.
-    //   - Cursor Y values don't always line up cleanly across displays with
-    //     different heights, so we do an X-only hit test — this reliably
-    //     picks the right monitor for the vast majority of arrangements
-    //     (side-by-side) and falls back gracefully otherwise.
+    // Tauri/macOS mixed-DPI coordinates are easiest to keep stable if we use
+    // the monitor-reported origin/size directly and avoid multiplying external
+    // monitor origins by the primary display scale.
     let cursor_pos = app.cursor_position().ok();
     let monitors = app.available_monitors().unwrap_or_default();
     for (i, m) in monitors.iter().enumerate() {
@@ -35,24 +51,13 @@ fn position_overlay(app: &AppHandle, win: &tauri::WebviewWindow, position: &Over
         );
     }
 
-    // Primary monitor's scale factor is the reference for the whole "logical"
-    // coordinate space — monitor positions are in primary-logical points, but
-    // cursor_position() returns true physical pixels on the virtual desktop.
-    // We need to convert origins to physical to hit-test correctly.
-    let primary_scale = monitors
-        .iter()
-        .find(|m| m.position().x == 0 && m.position().y == 0)
-        .map(|m| m.scale_factor())
-        .or_else(|| app.primary_monitor().ok().flatten().map(|m| m.scale_factor()))
-        .unwrap_or(1.0);
-
     // X-only hit test with a nearest-monitor fallback. Cursor coords can drift
     // a few dozen pixels outside the reported monitor bounds (bezel, rounding,
     // coordinate-system mismatches), so pick the monitor whose X range is
     // closest to the cursor if no monitor contains it exactly.
     let cursor_monitor = cursor_pos.as_ref().and_then(|pos| {
         let x_distance = |m: &tauri::Monitor| -> f64 {
-            let left = m.position().x as f64 * primary_scale;
+            let left = m.position().x as f64;
             let right = left + m.size().width as f64;
             if pos.x < left {
                 left - pos.x
@@ -73,9 +78,8 @@ fn position_overlay(app: &AppHandle, win: &tauri::WebviewWindow, position: &Over
     });
 
     log::info!(
-        "[overlay] cursor={:?}, primary_scale={}, hit_monitor_origin={:?}",
+        "[overlay] cursor={:?}, hit_monitor_origin={:?}",
         cursor_pos,
-        primary_scale,
         cursor_monitor.as_ref().map(|m| m.position())
     );
 
@@ -91,49 +95,37 @@ fn position_overlay(app: &AppHandle, win: &tauri::WebviewWindow, position: &Over
         }
     };
 
-    // Work in macOS NSScreen points (same units as monitor.position()), then
-    // multiply by primary_scale at the end — Tauri's PhysicalPosition is
-    // effectively `NSScreen-points × primary_scale` on macOS, so that's what
-    // we feed it.
     let target_scale = monitor.scale_factor();
-    let origin_x_points = monitor.position().x as f64;
-    let origin_y_points = monitor.position().y as f64;
-    // NSScreen width is reported_physical_size / target_scale (size field is
-    // in physical pixels, but NSScreen frames live in points).
-    let screen_w_points = monitor.size().width as f64 / target_scale;
-    let screen_h_points = monitor.size().height as f64 / target_scale;
+    let origin_x = monitor.position().x as f64;
+    let origin_y = monitor.position().y as f64;
+    let screen_w = monitor.size().width as f64;
+    let screen_h = monitor.size().height as f64;
 
-    let overlay_w = 320.0;
-    let overlay_h = 80.0;
-    let margin = 16.0;
-    let top_offset = 40.0;
+    let overlay_w = OVERLAY_WIDTH * target_scale;
+    let overlay_h = OVERLAY_BASE_HEIGHT * target_scale;
+    let margin = 16.0 * target_scale;
+    let top_offset = 40.0 * target_scale;
 
     let offset_x = match position {
         OverlayPosition::TopLeft => margin,
-        OverlayPosition::TopRight => screen_w_points - overlay_w - margin,
-        OverlayPosition::TopCenter | OverlayPosition::BottomCenter => {
-            (screen_w_points - overlay_w) / 2.0
-        }
+        OverlayPosition::TopRight => screen_w - overlay_w - margin,
+        OverlayPosition::TopCenter | OverlayPosition::BottomCenter => (screen_w - overlay_w) / 2.0,
     };
     let offset_y = match position {
-        OverlayPosition::BottomCenter => screen_h_points - overlay_h - margin,
+        OverlayPosition::BottomCenter => screen_h - overlay_h - margin,
         _ => top_offset,
     };
 
-    let x_points = origin_x_points + offset_x;
-    let y_points = origin_y_points + offset_y;
-    let x_phys = x_points * primary_scale;
-    let y_phys = y_points * primary_scale;
+    let x_phys = origin_x + offset_x;
+    let y_phys = origin_y + offset_y;
 
     log::info!(
-        "[overlay] target_origin_pts=({}, {}), {}x{} pts @ {}x, overlay_pts=({}, {}), phys=({}, {}), position={:?}",
-        origin_x_points,
-        origin_y_points,
-        screen_w_points,
-        screen_h_points,
+        "[overlay] target_origin=({}, {}), {}x{} px @ {}x, overlay_px=({}, {}), position={:?}",
+        origin_x,
+        origin_y,
+        screen_w,
+        screen_h,
         target_scale,
-        x_points,
-        y_points,
         x_phys,
         y_phys,
         position
@@ -149,8 +141,14 @@ fn set_overlay_above_dock(win: &tauri::WebviewWindow) {
     unsafe {
         if let Ok(ns_win) = win.ns_window() {
             let ns_win = ns_win as *mut objc2::runtime::AnyObject;
-            // kCGStatusWindowLevel = 25, above kCGDockWindowLevel (20)
+            // kCGStatusWindowLevel = 25, above kCGDockWindowLevel (20).
             let _: () = msg_send![ns_win, setLevel: 25_i64];
+            // Join all Spaces and appear as a fullscreen auxiliary window so
+            // the overlay can stay visible when the target app is fullscreen.
+            let collection_behavior: u64 = (1 << 0) | (1 << 4) | (1 << 8);
+            let _: () = msg_send![ns_win, setCollectionBehavior: collection_behavior];
+            let _: () = msg_send![ns_win, setCanHide: false];
+            let _: () = msg_send![ns_win, orderFrontRegardless];
         }
     }
 }
@@ -167,6 +165,33 @@ fn emit_transcription_error(app: &AppHandle, message: impl Into<String>) {
         "transcription-error",
         serde_json::json!({ "message": message }),
     );
+}
+
+fn emit_backend_error(app: &AppHandle, message: impl Into<String>) {
+    let message = message.into();
+    let _ = app.emit("backend-error", serde_json::json!({ "message": message }));
+}
+
+fn emit_realtime_transcription(app: &AppHandle, text: &str, full_text: &str) {
+    let _ = app.emit(
+        "realtime-transcription",
+        serde_json::json!({ "text": text, "full_text": full_text }),
+    );
+}
+
+fn emit_realtime_mode_updated(app: &AppHandle, armed: bool, active: bool) {
+    let _ = app.emit(
+        "realtime-mode-updated",
+        serde_json::json!({ "armed": armed, "active": active }),
+    );
+}
+
+fn sample_rms(samples: &[f32]) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let sum: f32 = samples.iter().map(|sample| sample * sample).sum();
+    (sum / samples.len() as f32).sqrt()
 }
 
 fn transcription_inputs(
@@ -212,6 +237,7 @@ fn spawn_transcription(
             return;
         }
 
+        let _transcription_guard = state.transcription_lock.lock().unwrap();
         let ctx = state.whisper_ctx.lock().unwrap().take();
         let ctx = match ctx {
             Some(context) => context,
@@ -227,24 +253,21 @@ fn spawn_transcription(
             },
         };
 
-        let result = crate::transcribe::whisper::transcribe(&ctx, &samples_16k, &language, translate_to_english);
+        let result = crate::transcribe::whisper::transcribe(
+            &ctx,
+            &samples_16k,
+            &language,
+            translate_to_english,
+        );
         *state.whisper_ctx.lock().unwrap() = Some(ctx);
 
         match result {
             Ok(ref text) => {
-                log::info!("[transcribe] result ({} chars): {:?}", text.len(), &text[..text.len().min(100)]);
-
-                // Save the user's clipboard before overwriting it
-                let previous_clipboard = crate::output::clipboard::read_clipboard();
-
-                let clipboard_ok = match crate::output::clipboard::copy_to_clipboard(text) {
-                    Ok(()) => true,
-                    Err(e) => {
-                        log::error!("[clipboard] failed: {}", e);
-                        emit_transcription_error(&app, format!("Clipboard error: {}", e));
-                        false
-                    }
-                };
+                log::info!(
+                    "[transcribe] result ({} chars): {:?}",
+                    text.chars().count(),
+                    preview_text(text, 100)
+                );
 
                 if hide_overlay_on_finish {
                     hide_overlay(&app);
@@ -255,24 +278,38 @@ fn spawn_transcription(
                     serde_json::json!({ "text": text }),
                 );
 
-                if clipboard_ok && auto_paste {
-                    if let Some(target) = target_focus {
-                        match crate::output::paste::paste_into_target(target) {
-                            Ok(()) => {
-                                // Paste succeeded — restore the user's original clipboard
-                                if let Some(prev) = previous_clipboard {
-                                    std::thread::sleep(std::time::Duration::from_millis(200));
-                                    let _ = crate::output::clipboard::copy_to_clipboard(&prev);
+                if auto_paste {
+                    match target_focus {
+                        Some(target) => {
+                            if let Err(error) =
+                                crate::output::paste::type_text_into_target(target, text)
+                            {
+                                log::error!("[type] failed: {}", error);
+                                if let Err(clipboard_error) =
+                                    crate::output::clipboard::copy_to_clipboard(text)
+                                {
+                                    log::error!("[clipboard] failed: {}", clipboard_error);
+                                    emit_transcription_error(
+                                        &app,
+                                        format!("Clipboard error: {}", clipboard_error),
+                                    );
                                 }
                             }
-                            Err(error) => {
-                                // Paste failed — keep transcription on clipboard so user can Cmd+V manually
-                                log::error!("[paste] failed: {}", error);
+                        }
+                        None => {
+                            log::warn!("[type] no target window captured — copying transcript");
+                            if let Err(error) = crate::output::clipboard::copy_to_clipboard(text) {
+                                log::error!("[clipboard] failed: {}", error);
+                                emit_transcription_error(
+                                    &app,
+                                    format!("Clipboard error: {}", error),
+                                );
                             }
                         }
-                    } else {
-                        log::warn!("[paste] no target window captured — skipping paste");
                     }
+                } else if let Err(error) = crate::output::clipboard::copy_to_clipboard(text) {
+                    log::error!("[clipboard] failed: {}", error);
+                    emit_transcription_error(&app, format!("Clipboard error: {}", error));
                 }
             }
             Err(ref error) => {
@@ -284,6 +321,249 @@ fn spawn_transcription(
             }
         }
     });
+}
+
+fn transcribe_realtime_chunk(
+    app: &AppHandle,
+    samples_16k: &[f32],
+    language: &str,
+    translate_to_english: bool,
+    active_model: &str,
+    model_path: &PathBuf,
+) -> Result<String, String> {
+    let state = app.state::<AppState>();
+    let _transcription_guard = state.transcription_lock.lock().unwrap();
+
+    downloader::validate_model_file(active_model)?;
+
+    let ctx = state.whisper_ctx.lock().unwrap().take();
+    let ctx = match ctx {
+        Some(context) => context,
+        None => crate::transcribe::whisper::load_model(model_path)?,
+    };
+
+    let result =
+        crate::transcribe::whisper::transcribe(&ctx, samples_16k, language, translate_to_english);
+    *state.whisper_ctx.lock().unwrap() = Some(ctx);
+    result
+}
+
+fn spawn_realtime_transcription_worker(
+    app: AppHandle,
+    active: Arc<AtomicBool>,
+    samples: Arc<Mutex<Vec<f32>>>,
+    sample_rate: u32,
+    channels: u16,
+    settings: Settings,
+    target_focus: Option<FocusTarget>,
+    start_sample_index: usize,
+    output_seen: Arc<AtomicBool>,
+) {
+    std::thread::spawn(move || {
+        const CHUNK_SECONDS: f32 = 4.0;
+        const POLL_MS: u64 = 500;
+        const MIN_RMS: f32 = 0.003;
+
+        let channels_usize = channels as usize;
+        let raw_chunk_len = (sample_rate as f32 * channels as f32 * CHUNK_SECONDS).round() as usize;
+        let model_path = downloader::model_path(&settings.active_model);
+        let mut next_sample_index = start_sample_index;
+        let mut full_text = String::new();
+
+        log::info!(
+            "[realtime] worker started: chunk={:.1}s, model='{}', language='{}', rate={}, channels={}, auto_paste={}, target={:?}",
+            CHUNK_SECONDS,
+            settings.active_model,
+            settings.language,
+            sample_rate,
+            channels,
+            settings.auto_paste,
+            target_focus
+        );
+
+        while active.load(Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(POLL_MS));
+
+            let raw_samples = {
+                let buf = samples.lock().unwrap();
+                let available = buf.len().saturating_sub(next_sample_index);
+                if available < raw_chunk_len {
+                    continue;
+                }
+                let end = buf.len();
+                let chunk = buf[next_sample_index..end].to_vec();
+                next_sample_index = end;
+                chunk
+            };
+
+            if sample_rms(&raw_samples) < MIN_RMS {
+                log::debug!("[realtime] skipping quiet chunk");
+                continue;
+            }
+
+            let samples_16k = match crate::audio::resample::resample_to_16k(
+                raw_samples,
+                sample_rate,
+                channels_usize,
+            ) {
+                Ok(samples) => samples,
+                Err(error) => {
+                    log::warn!("[realtime] resample failed: {}", error);
+                    emit_backend_error(&app, format!("Realtime resample error: {}", error));
+                    continue;
+                }
+            };
+
+            if !active.load(Ordering::Relaxed) {
+                break;
+            }
+
+            let duration_secs = samples_16k.len() as f32 / 16_000.0;
+            log::info!("[realtime] transcribing {:.1}s chunk", duration_secs);
+
+            match transcribe_realtime_chunk(
+                &app,
+                &samples_16k,
+                &settings.language,
+                settings.translate_to_english,
+                &settings.active_model,
+                &model_path,
+            ) {
+                Ok(text) if !text.trim().is_empty() => {
+                    if !active.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let text = text.trim().to_string();
+                    if !full_text.is_empty() {
+                        full_text.push(' ');
+                    }
+                    full_text.push_str(&text);
+                    output_seen.store(true, Ordering::Relaxed);
+                    log::info!("[realtime] partial: {:?}", text);
+                    emit_realtime_transcription(&app, &text, &full_text);
+
+                    if settings.auto_paste {
+                        if let Some(target) = target_focus.clone() {
+                            let committed_text = format!("{} ", text);
+                            log::info!(
+                                "[realtime] typing partial into target {:?}: {:?}",
+                                target,
+                                committed_text
+                            );
+                            if let Err(error) =
+                                crate::output::paste::type_text_into_target(target, &committed_text)
+                            {
+                                log::warn!("[realtime] live typing failed: {}", error);
+                                emit_backend_error(
+                                    &app,
+                                    format!("Realtime live typing error: {}", error),
+                                );
+                            }
+                        } else {
+                            log::warn!(
+                                "[realtime] auto_paste enabled but no target captured; start with the global hotkey from a focused text field"
+                            );
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    if !active.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    log::warn!("[realtime] transcription failed: {}", error);
+                    emit_backend_error(&app, format!("Realtime transcription error: {}", error));
+                }
+            }
+        }
+
+        log::info!("[realtime] worker stopped");
+    });
+}
+
+fn stop_realtime_worker(state: &AppState) {
+    if let Some(active) = state.realtime_worker_active.lock().unwrap().take() {
+        active.store(false, Ordering::Relaxed);
+    }
+}
+
+fn start_realtime_worker_if_recording(
+    app: &AppHandle,
+    state: &AppState,
+    settings: Settings,
+    start_at_current_audio: bool,
+) -> bool {
+    let recording_context = {
+        let recording = state.recording.lock().unwrap();
+        recording.as_ref().map(|handle| {
+            let start_sample_index = if start_at_current_audio {
+                handle.samples.lock().unwrap().len()
+            } else {
+                0
+            };
+            (
+                handle.samples.clone(),
+                handle.sample_rate,
+                handle.channels,
+                start_sample_index,
+            )
+        })
+    };
+
+    let Some((samples, sample_rate, channels, start_sample_index)) = recording_context else {
+        stop_realtime_worker(state);
+        return false;
+    };
+
+    {
+        let active_slot = state.realtime_worker_active.lock().unwrap();
+        if active_slot
+            .as_ref()
+            .is_some_and(|active| active.load(Ordering::Relaxed))
+        {
+            *state.realtime_used_in_recording.lock().unwrap() = true;
+            return true;
+        }
+    }
+
+    let realtime_active = Arc::new(AtomicBool::new(true));
+    {
+        let mut active_slot = state.realtime_worker_active.lock().unwrap();
+        if let Some(previous) = active_slot.take() {
+            previous.store(false, Ordering::Relaxed);
+        }
+        *active_slot = Some(realtime_active.clone());
+    }
+    *state.realtime_used_in_recording.lock().unwrap() = true;
+
+    let target_focus = state.target_focus.lock().unwrap().clone();
+    spawn_realtime_transcription_worker(
+        app.clone(),
+        realtime_active,
+        samples,
+        sample_rate,
+        channels,
+        settings,
+        target_focus,
+        start_sample_index,
+        state.realtime_output_seen.clone(),
+    );
+    true
+}
+
+fn sync_realtime_worker(
+    app: &AppHandle,
+    state: &AppState,
+    enabled: bool,
+    settings: Settings,
+    start_at_current_audio: bool,
+) -> bool {
+    if enabled {
+        start_realtime_worker_if_recording(app, state, settings, start_at_current_audio)
+    } else {
+        stop_realtime_worker(state);
+        false
+    }
 }
 
 #[tauri::command]
@@ -304,7 +584,14 @@ pub async fn start_recording(app: AppHandle, state: State<'_, AppState>) -> Resu
 
     let handle = crate::audio::capture::start_capture(settings.max_recording_seconds)?;
     let current_level = handle.current_level.clone();
+    let realtime_samples = handle.samples.clone();
+    let realtime_sample_rate = handle.sample_rate;
+    let realtime_channels = handle.channels;
+    let realtime_target_focus = state.target_focus.lock().unwrap().clone();
+    let target_captured = realtime_target_focus.is_some();
     *state.recording.lock().unwrap() = Some(handle);
+    *state.realtime_used_in_recording.lock().unwrap() = settings.realtime_transcription;
+    state.realtime_output_seen.store(false, Ordering::Relaxed);
 
     if let Some(win) = app.get_webview_window("overlay") {
         let _ = win.show();
@@ -333,15 +620,75 @@ pub async fn start_recording(app: AppHandle, state: State<'_, AppState>) -> Resu
         }
     });
 
-    app.emit("recording-started", ())
-        .map_err(|e| e.to_string())?;
+    if settings.realtime_transcription {
+        if let Some(active) = state.realtime_worker_active.lock().unwrap().take() {
+            active.store(false, Ordering::Relaxed);
+        }
+        let realtime_active = Arc::new(AtomicBool::new(true));
+        *state.realtime_worker_active.lock().unwrap() = Some(realtime_active.clone());
+        spawn_realtime_transcription_worker(
+            app.clone(),
+            realtime_active,
+            realtime_samples,
+            realtime_sample_rate,
+            realtime_channels,
+            settings.clone(),
+            realtime_target_focus,
+            0,
+            state.realtime_output_seen.clone(),
+        );
+    }
+
+    app.emit(
+        "recording-started",
+        serde_json::json!({
+            "realtime": settings.realtime_transcription,
+            "auto_paste": settings.auto_paste,
+            "target_captured": target_captured,
+        }),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn start_recording_from_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    *state.target_focus.lock().unwrap() = None;
+    start_recording(app, state).await
+}
+
+#[tauri::command]
+pub async fn start_recording_from_settings_with_target_delay(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.hide();
+    }
+
+    tokio::time::sleep(Duration::from_millis(1600)).await;
+    let target = crate::output::paste::get_frontmost_target();
+    #[cfg(target_os = "macos")]
+    let target = target.filter(|pid| *pid != std::process::id() as i32);
+    log::info!(
+        "[settings] delayed start captured target_focus = {:?}",
+        target
+    );
+    *state.target_focus.lock().unwrap() = target;
+
+    start_recording(app, state).await
 }
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     // Stop the audio level emitter
     if let Some(active) = state.level_emitter_active.lock().unwrap().take() {
+        active.store(false, Ordering::Relaxed);
+    }
+    if let Some(active) = state.realtime_worker_active.lock().unwrap().take() {
         active.store(false, Ordering::Relaxed);
     }
 
@@ -360,19 +707,55 @@ pub async fn stop_recording(app: AppHandle, state: State<'_, AppState>) -> Resul
         }
     }
 
-    app.emit("recording-stopped", ())
-        .map_err(|e| e.to_string())?;
+    let used_realtime = {
+        let mut realtime_used = state.realtime_used_in_recording.lock().unwrap();
+        let used_realtime = *realtime_used;
+        *realtime_used = false;
+        used_realtime
+    };
+    let realtime_output_seen = state.realtime_output_seen.load(Ordering::Relaxed);
+    let skip_final_transcription = used_realtime && realtime_output_seen;
+    app.emit(
+        "recording-stopped",
+        serde_json::json!({
+            "finalizing": !skip_final_transcription,
+            "realtime": used_realtime,
+        }),
+    )
+    .map_err(|e| e.to_string())?;
+    emit_realtime_mode_updated(
+        &app,
+        state.settings.lock().unwrap().realtime_transcription,
+        false,
+    );
+
+    if skip_final_transcription {
+        log::info!("[realtime] skipping final batch transcription after realtime recording");
+        hide_overlay(&app);
+        let _ = app.emit(
+            "transcription-complete",
+            serde_json::json!({ "text": "", "realtime": true }),
+        );
+        return Ok(());
+    }
+
+    if used_realtime {
+        log::info!(
+            "[realtime] no realtime output was seen before stop; running final batch fallback"
+        );
+    }
 
     let samples_16k =
         crate::audio::resample::resample_to_16k(raw_samples, sample_rate, channels as usize)?;
     let (language, auto_paste, translate_to_english, target_focus, active_model, model_path) =
         transcription_inputs(&state);
+    let final_auto_paste = auto_paste && !state.settings.lock().unwrap().realtime_transcription;
 
     spawn_transcription(
         app,
         samples_16k,
         language,
-        auto_paste,
+        final_auto_paste,
         translate_to_english,
         target_focus,
         active_model,
@@ -429,15 +812,77 @@ pub async fn update_settings(
     settings: Settings,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let old_hotkey = state.settings.lock().unwrap().hotkey.clone();
+    let old_settings = state.settings.lock().unwrap().clone();
+    let old_hotkey = old_settings.hotkey.clone();
     let new_hotkey = settings.hotkey.clone();
 
-    settings.save()?;
-    *state.settings.lock().unwrap() = settings;
-
-    if old_hotkey != new_hotkey {
+    let hotkey_changed = old_hotkey != new_hotkey;
+    if hotkey_changed {
         crate::hotkey::manager::re_register_hotkey(&app, &old_hotkey, &new_hotkey)?;
     }
+
+    if let Err(error) = settings.save() {
+        if hotkey_changed {
+            let _ = crate::hotkey::manager::re_register_hotkey(&app, &new_hotkey, &old_hotkey);
+        }
+        return Err(error);
+    }
+    *state.settings.lock().unwrap() = settings.clone();
+
+    let mut realtime_active = state
+        .realtime_worker_active
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|active| active.load(Ordering::Relaxed));
+
+    if old_settings.realtime_transcription != settings.realtime_transcription {
+        realtime_active = sync_realtime_worker(
+            &app,
+            &state,
+            settings.realtime_transcription,
+            settings.clone(),
+            true,
+        );
+        emit_realtime_mode_updated(&app, settings.realtime_transcription, realtime_active);
+    }
+
+    let _ = app.emit(
+        "settings-updated",
+        serde_json::json!({ "settings": settings, "realtime_active": realtime_active }),
+    );
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_realtime_transcription(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut settings = state.settings.lock().unwrap().clone();
+    if settings.realtime_transcription == enabled {
+        let active = state
+            .realtime_worker_active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|worker| worker.load(Ordering::Relaxed));
+        emit_realtime_mode_updated(&app, enabled, active);
+        return Ok(());
+    }
+
+    settings.realtime_transcription = enabled;
+    settings.save()?;
+    *state.settings.lock().unwrap() = settings.clone();
+
+    let realtime_active = sync_realtime_worker(&app, &state, enabled, settings.clone(), true);
+    emit_realtime_mode_updated(&app, enabled, realtime_active);
+    let _ = app.emit(
+        "settings-updated",
+        serde_json::json!({ "settings": settings, "realtime_active": realtime_active }),
+    );
 
     Ok(())
 }
@@ -670,5 +1115,11 @@ mod tests {
         assert!(validate_model_name("tiny/evil").is_err());
         assert!(validate_model_name("tiny\0evil").is_err());
         assert!(validate_model_name("").is_err());
+    }
+
+    #[test]
+    fn preview_text_keeps_unicode_boundaries() {
+        assert_eq!(preview_text("שלום עולם", 5), "שלום ...");
+        assert_eq!(preview_text("hello", 100), "hello");
     }
 }

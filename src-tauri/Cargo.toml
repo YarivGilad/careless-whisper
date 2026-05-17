@@ -47,6 +47,8 @@ libc = "0.2"
 # unusably slow at opt-level 0. This keeps debug info but enables optimizations.
 [profile.dev]
 opt-level = 2
+# Avoid intermittent macOS arm64 linker failures in optimized dev builds.
+incremental = false
 
 [dev-dependencies]
 hound = "3.5"
