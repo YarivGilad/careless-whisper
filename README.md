@@ -19,7 +19,8 @@ Get the latest version from the [Releases](https://github.com/YarivGilad/careles
 |---|---|
 | macOS (Intel + Apple Silicon) | `.dmg` |
 | Windows | `.exe` installer or `.msi` |
-| Linux | `.deb` or `.AppImage` |
+| Linux (Debian/Ubuntu) | `.deb` or `.AppImage` |
+| Linux (Fedora/RHEL) | `.rpm` or `.AppImage` |
 
 ---
 
@@ -57,6 +58,46 @@ After that, the app will open normally.
 2. Run the installer and follow the prompts.
 
 > The app lives in the **system tray** (bottom-right of your screen).
+
+### Linux
+
+**Fedora / RHEL (`.rpm`)** — `dnf` pulls in every dependency automatically:
+
+```sh
+sudo dnf install ./CarelessWhisper-*.x86_64.rpm
+```
+
+**Debian / Ubuntu (`.deb`)**:
+
+```sh
+sudo apt install ./Careless\ Whisper_*_amd64.deb
+```
+
+**Any distro (`.AppImage`)** — no install, just run:
+
+```sh
+chmod +x Careless\ Whisper_*_amd64.AppImage
+./Careless\ Whisper_*_amd64.AppImage
+```
+
+> The app lives in the **system tray**.
+>
+> **Wayland (KDE/GNOME):**
+>
+> 1. **Global hotkey** is restricted, so the app listens on a per-user FIFO instead. Bind a custom keyboard shortcut to:
+>    ```sh
+>    echo toggle > ~/.local/share/careless-whisper/careless-whisper.sock
+>    ```
+> 2. **Paste** uses `ydotool` (compositors block other synthetic-input methods). Enable its daemon once:
+>    ```sh
+>    systemctl --user enable --now ydotoold
+>    ```
+> 3. **KDE Plasma only:** install `kdotool` so paste can refocus the right window (KWin doesn't return focus to the original app after the recording overlay hides):
+>    ```sh
+>    sudo dnf install kdotool   # Fedora
+>    ```
+>
+> On **X11** none of this is needed — the global hotkey works and paste uses `xdotool`.
 
 ### First launch
 

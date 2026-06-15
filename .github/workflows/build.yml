@@ -116,6 +116,18 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/msi/*.msi
 
+      - name: Strip space from RPM filename
+        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          # productName is "Careless Whisper", so the bundler emits a filename
+          # with a space. Strip it (Careless Whisper-... -> CarelessWhisper-...)
+          # without touching productName (which other bundles depend on).
+          for f in src-tauri/target/release/bundle/rpm/*.rpm; do
+            [ -e "$f" ] || continue
+            mv "$f" "$(dirname "$f")/$(basename "$f" | tr -d ' ')"
+          done
+
       - name: Upload Linux artifacts
         if: matrix.platform == 'ubuntu-22.04'
         uses: actions/upload-artifact@v5
@@ -123,6 +135,7 @@ jobs:
           name: linux
           path: |
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/rpm/*.rpm
             src-tauri/target/release/bundle/appimage/*.AppImage
 
   release:
@@ -154,4 +167,5 @@ jobs:
             artifacts/**/*.exe
             artifacts/**/*.msi
             artifacts/**/*.deb
+            artifacts/**/*.rpm
             artifacts/**/*.AppImage

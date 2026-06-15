@@ -110,8 +110,16 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     };
 
     if let Some(window) = app.get_webview_window("settings") {
+        // Linux/Wayland (KWin) doesn't deliver native titlebar button clicks to
+        // the WebKitGTK surface, so the buttons are dead. Drop the native
+        // decorations and use the custom in-webview titlebar (see TitleBar.tsx).
+        // macOS/Windows keep their working native decorations.
+        #[cfg(target_os = "linux")]
+        let _ = window.set_decorations(false);
+
         let win = window.clone();
         window.on_window_event(move |event| {
+            // Closing the window only hides it — the app lives in the tray.
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = win.hide();
@@ -137,6 +145,17 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
                     }
                 }
                 "quit" => {
+                    // On Linux, Tauri's graceful shutdown drops the wry/tao
+                    // Context (built on non-thread-safe `Rc`). If an in-flight
+                    // async IPC task still holds an AppHandle/Webview clone,
+                    // its drop can land on a tokio worker thread and race the
+                    // main thread, aborting with "tcache double free". Exit the
+                    // process directly to skip Rust drop glue. Settings are
+                    // persisted synchronously on every change, so nothing needs
+                    // flushing at exit.
+                    #[cfg(target_os = "linux")]
+                    std::process::exit(0);
+                    #[cfg(not(target_os = "linux"))]
                     app.exit(0);
                 }
                 _ => {}

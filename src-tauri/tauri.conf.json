@@ -43,7 +43,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app", "nsis", "msi", "deb", "appimage"],
+    "targets": ["dmg", "app", "nsis", "msi", "deb", "rpm", "appimage"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -72,8 +72,26 @@
           "libgtk-3-0",
           "libappindicator3-1",
           "xdotool",
-          "wtype"
+          "wtype",
+          "ydotool",
+          "wl-clipboard"
         ]
+      },
+      "rpm": {
+        "depends": [
+          "alsa-lib",
+          "webkit2gtk4.1",
+          "gtk3",
+          "libappindicator-gtk3",
+          "xdotool",
+          "wtype",
+          "ydotool",
+          "kdotool",
+          "wl-clipboard"
+        ],
+        "release": "1",
+        "postInstallScript": "rpm/scripts/postinstall.sh",
+        "postRemoveScript": "rpm/scripts/postremove.sh"
       }
     }
   }

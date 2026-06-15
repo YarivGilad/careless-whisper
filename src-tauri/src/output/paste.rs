@@ -227,13 +227,35 @@ fn is_wayland() -> bool {
             .unwrap_or(false)
 }
 
-/// Returns the current frontmost window target.
-/// - On X11: runs `xdotool getactivewindow` and returns the window ID.
-/// - On Wayland: tries `xdotool getactivewindow` via XWayland first (works on
-///   GNOME/Ubuntu), falls back to a "wayland" marker if that fails.
+/// Returns the current frontmost window target so paste can refocus it.
+/// - On Wayland (KDE): `kdotool getactivewindow` returns the KWin window id; we
+///   store it prefixed with `kwin:`. Keystrokes still go through ydotool
+///   (uinput), but we reactivate this window first because the focus does NOT
+///   reliably return to the original app after our overlay hides on KWin. If
+///   kdotool is unavailable we fall back to the `wayland` marker (blind
+///   ydotool). We must NOT use `xdotool getactivewindow` here: it succeeds on
+///   KWin but returns an XWayland id that Ctrl+V can never reach.
+/// - On X11: `xdotool getactivewindow` returns the window id for refocus+paste.
 #[cfg(target_os = "linux")]
 pub fn get_frontmost_target() -> Option<FocusTarget> {
-    // Try xdotool first — it works on pure X11 and on Wayland+XWayland (GNOME).
+    if is_wayland() {
+        if let Ok(output) = std::process::Command::new("kdotool")
+            .arg("getactivewindow")
+            .output()
+        {
+            if output.status.success() {
+                let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !id.is_empty() {
+                    log::info!("[paste] captured KWin window id: {id}");
+                    return Some(format!("kwin:{id}"));
+                }
+            }
+        }
+        log::warn!("[paste] kdotool getactivewindow unavailable — paste will be focus-blind");
+        return Some("wayland".to_string());
+    }
+
+    // X11: capture the active window so paste can refocus it.
     if let Ok(output) = std::process::Command::new("xdotool")
         .arg("getactivewindow")
         .output()
@@ -244,12 +266,6 @@ pub fn get_frontmost_target() -> Option<FocusTarget> {
                 return Some(id);
             }
         }
-    }
-
-    if is_wayland() {
-        // Wayland without XWayland access — return a marker.
-        // paste_into_target will use the Wayland paste path.
-        return Some("wayland".to_string());
     }
 
     None
@@ -265,7 +281,50 @@ pub fn paste_into_target(target: FocusTarget) -> Result<(), String> {
     if target == "wayland" {
         return paste_wayland();
     }
+    if let Some(kwin_id) = target.strip_prefix("kwin:") {
+        return paste_kwin(kwin_id);
+    }
     paste_x11(&target)
+}
+
+/// Inject Ctrl+V via ydotool (kernel uinput — the only synthetic-input method
+/// KWin/Mutter accept). `-d 25` spaces the key events so fast compositors don't
+/// drop them. Requires `ydotoold` running.
+#[cfg(target_os = "linux")]
+fn ydotool_ctrl_v() -> Result<(), String> {
+    let status = std::process::Command::new("ydotool")
+        .args(["key", "-d", "25", "29:1", "47:1", "47:0", "29:0"]) // Ctrl+V
+        .status()
+        .map_err(|e| format!("Failed to run ydotool (is ydotoold running?): {e}"))?;
+    if !status.success() {
+        return Err(format!(
+            "ydotool key ctrl+v failed with {status} — is ydotoold running? \
+             (`systemctl --user enable --now ydotoold`)"
+        ));
+    }
+    Ok(())
+}
+
+/// KDE Wayland: reactivate the captured target window (focus does not reliably
+/// return after the overlay hides on KWin), then inject Ctrl+V via ydotool.
+#[cfg(target_os = "linux")]
+fn paste_kwin(window_id: &str) -> Result<(), String> {
+    let activate = std::process::Command::new("kdotool")
+        .args(["windowactivate", window_id])
+        .status();
+    match activate {
+        Ok(s) if s.success() => log::info!("[paste] kdotool reactivated window {window_id}"),
+        Ok(s) => log::warn!("[paste] kdotool windowactivate {window_id} exited {s}"),
+        Err(e) => log::warn!("[paste] kdotool windowactivate failed: {e}"),
+    }
+
+    // Give KWin a moment to apply focus before injecting the keystroke.
+    std::thread::sleep(std::time::Duration::from_millis(150));
+
+    ydotool_ctrl_v()?;
+    log::info!("[paste] ydotool Ctrl+V sent (KWin path)");
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    Ok(())
 }
 
 #[cfg(target_os = "linux")]
@@ -304,37 +363,38 @@ fn paste_x11(window_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Focus-blind Wayland paste, used when kdotool isn't available to capture and
+/// reactivate the target window. Relies on the target keeping keyboard focus
+/// after the overlay hides (true on wlroots/GNOME, unreliable on KWin — hence
+/// the kdotool path above).
 #[cfg(target_os = "linux")]
 fn paste_wayland() -> Result<(), String> {
-    // On Wayland the previously focused window regains focus automatically
-    // after our overlay hides, so we just need to simulate the keystroke.
     std::thread::sleep(std::time::Duration::from_millis(100));
 
-    // Strategy 1: Try ydotool (uses uinput, works on all Wayland compositors)
-    if let Ok(status) = std::process::Command::new("ydotool")
-        .args(["key", "29:1", "47:1", "47:0", "29:0"]) // Ctrl down, V down, V up, Ctrl up
-        .status()
-    {
-        if status.success() {
+    // Strategy 1: ydotool (kernel uinput — works on KWin/Mutter/wlroots).
+    match ydotool_ctrl_v() {
+        Ok(()) => {
+            log::info!("[paste] ydotool Ctrl+V sent (focus-blind Wayland path)");
             std::thread::sleep(std::time::Duration::from_millis(50));
             return Ok(());
         }
-        log::warn!("ydotool failed with {status}, trying next method");
+        Err(e) => log::warn!("[paste] {e}; trying wtype"),
     }
 
-    // Strategy 2: Try wtype (works on wlroots-based compositors like Sway)
+    // Strategy 2: wtype (wlroots-only — Sway/Hyprland; rejected by KWin/Mutter).
     if let Ok(status) = std::process::Command::new("wtype")
         .args(["-M", "ctrl", "-k", "v", "-m", "ctrl"])
         .status()
     {
         if status.success() {
+            log::info!("[paste] wtype Ctrl+V sent");
             std::thread::sleep(std::time::Duration::from_millis(50));
             return Ok(());
         }
-        log::warn!("wtype failed with {status}, trying next method");
+        log::warn!("[paste] wtype failed with {status}, trying xdotool");
     }
 
-    // Strategy 3: Fall back to xdotool via XWayland (works on GNOME/Ubuntu)
+    // Strategy 3: xdotool via XWayland (only reaches XWayland apps).
     let status = std::process::Command::new("xdotool")
         .args(["key", "--clearmodifiers", "ctrl+v"])
         .status()
@@ -347,6 +407,7 @@ fn paste_wayland() -> Result<(), String> {
         ));
     }
 
+    log::info!("[paste] xdotool Ctrl+V sent (XWayland)");
     std::thread::sleep(std::time::Duration::from_millis(50));
     Ok(())
 }

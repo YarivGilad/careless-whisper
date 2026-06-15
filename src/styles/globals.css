@@ -148,13 +148,70 @@ body {
 }
 
 /* Settings window */
+.window-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Custom titlebar (Linux only — see TitleBar.tsx) */
+.titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  padding-left: 12px;
+  background: #161618;
+  border-bottom: 1px solid #2c2c2e;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.titlebar-title {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2f2f7;
+  pointer-events: none;
+}
+
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+}
+
+.titlebar-btn {
+  width: 44px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #c7c7cc;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.titlebar-btn:hover {
+  background: #2c2c2e;
+  color: #f2f2f7;
+}
+
+.titlebar-btn-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
 .settings-root {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   padding: 24px;
   padding-bottom: 32px;
   background: #1c1c1e;
   color: #f2f2f7;
-  min-height: 100vh;
+  flex: 1 1 auto;
+  min-height: 0;
   box-sizing: border-box;
   overflow-y: auto;
 }
@@ -199,6 +256,16 @@ body {
   box-sizing: border-box;
 }
 
+/* On Linux/webkit (KDE), <select> controls are drawn by the native GTK theme
+   with a light background that ignores the dark `background` above, so the
+   light `color` is invisible. Use a strong blue for the selected value and the
+   options so the text reads on a white or light-gray control as well as the
+   dark control used on macOS. */
+.settings-select {
+  color: #1565c0;
+  font-weight: 500;
+}
+
 .settings-input:focus,
 .settings-select:focus {
   border-color: #0a84ff;
@@ -206,7 +273,7 @@ body {
 
 .settings-select option,
 .settings-select optgroup {
-  color: #111;
+  color: #1565c0;
   background: #fff;
 }
 

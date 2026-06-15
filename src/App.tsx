@@ -4,7 +4,12 @@ import { Settings } from "./components/Settings";
 import { ModelManager } from "./components/ModelManager";
 import { Overlay } from "./components/Overlay";
 import { Toast } from "./components/Toast";
+import { TitleBar } from "./components/TitleBar";
 import { useTauriEvents } from "./hooks/useTauriEvents";
+
+// Native window decorations don't work on Linux/Wayland (KWin), so we render a
+// custom titlebar there. macOS/Windows keep their native decorations.
+const isLinux = navigator.userAgent.includes("Linux");
 
 declare global {
   interface Window {
@@ -45,14 +50,17 @@ function SettingsWindow() {
   const dismissToast = useCallback(() => setToastVisible(false), []);
 
   return (
-    <div className="settings-root">
-      <Settings />
-      <ModelManager activeModel={activeModel} />
-      <Toast
-        message={toastMessage}
-        visible={toastVisible}
-        onDismiss={dismissToast}
-      />
+    <div className="window-root">
+      {isLinux && <TitleBar />}
+      <div className="settings-root">
+        <Settings />
+        <ModelManager activeModel={activeModel} />
+        <Toast
+          message={toastMessage}
+          visible={toastVisible}
+          onDismiss={dismissToast}
+        />
+      </div>
     </div>
   );
 }
